@@ -1,0 +1,1501 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Spatial Cognition Game – 4 Levels</title>
+  <style>
+    /* --- Base --- */
+    html, body { margin:0; padding:0; overflow:hidden; background:#000; color:#fff;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans SC", "Noto Sans", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+                   "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji", sans-serif;
+      -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    }
+    canvas { display:block; }
+
+    /* --- Overlays --- */
+    .overlay {
+      position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      background:rgba(0,0,0,.7); z-index:10; text-align:center;
+    }
+    #blocker { cursor:pointer; }
+    #instructions {
+      width:min(92vw,560px); padding:22px 26px; border-radius:16px;
+      background:rgba(0,0,0,.55); border:2px solid #888; text-shadow:2px 2px 4px #000;
+    }
+    #instruction-title { font-size:22px; font-weight:700; color:#ffdd57; margin:0 0 8px; }
+    #instruction-body { line-height:1.6; font-size:16px; }
+    #hint { margin-top:14px; color:#ffdd57; }
+    #crown { display:none; font-size: 42px; margin-bottom: -6px; }
+    #hud {
+      position:fixed; left:20px; top:20px; display:flex; gap:12px; align-items:center; z-index:5;
+      background:rgba(0,0,0,.45); border:1px solid #777; padding:8px 12px; border-radius:10px;
+      font-weight:600;
+    }
+    #timer { font-variant-numeric:tabular-nums; }
+    #counter { margin-left:6px; color:#ffdd57; }
+    #scorebox {
+      position:fixed; right:20px; top:20px; z-index:5;
+      background:rgba(0,0,0,.45); border:1px solid #777; padding:8px 12px; border-radius:10px; font-weight:700;
+      display:none;
+    }
+    #crosshair {
+      position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+      width:24px; height:24px; pointer-events:none; display:none;
+    }
+    #crosshair:before, #crosshair:after {
+      content:""; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+      background:#fff; box-shadow:0 0 0 2px #f33; border-radius:1px;
+    }
+    #crosshair:before { width:2px; height:20px; }
+    #crosshair:after { width:20px; height:2px; }
+
+    /* Key helper */
+    #keys {
+      position:fixed; left:20px; bottom:20px; z-index:5; opacity:0; transition:opacity .35s ease;
+      display:grid; gap:6px; grid-template-areas: ". w ." "a s d" "space space space" "shift shift shift";
+      grid-template-columns:repeat(3,58px); grid-auto-rows:58px;
+    }
+    .key {
+      border:2px solid rgba(255,255,255,.45); border-radius:8px; display:flex; align-items:center; justify-content:center;
+      background:rgba(0,0,0,.35); font-weight:700; user-select:none;
+    }
+    .key.w { grid-area: w; }
+    .key.a { grid-area: a; }
+    .key.s { grid-area: s; }
+    .key.d { grid-area: d; }
+    .key.space { grid-area: space; }
+    .key.shift { grid-area: shift; }
+    .pressed { background:rgba(255,255,255,.85); color:#000; transform:scale(.96); }
+
+    /* Rhythm prompt (Stage 1) */
+    #prompt {
+      position:fixed; left:50%; top:28%; transform:translate(-50%,-50%);
+      font-size:54px; font-weight:900; letter-spacing:1px;
+      padding:10px 20px; border-radius:16px;
+      background:rgba(0,0,0,.35); border:2px solid #8fd1ff; text-shadow:0 0 10px rgba(143,209,255,.85);
+      box-shadow:0 0 24px rgba(143,209,255,.45), inset 0 0 24px rgba(143,209,255,.25);
+      display:none; z-index:6; white-space:nowrap;
+    }
+    #prompt small { display:block; font-size:18px; font-weight:700; opacity:.9; margin-top:6px; }
+
+    
+    /* Golden flash for prompt on success */
+    #prompt.goldflash {
+      border-color:#ffd700;
+      text-shadow:0 0 14px rgba(255,215,0,.95);
+      box-shadow:0 0 30px rgba(255,215,0,.60), inset 0 0 30px rgba(255,215,0,.35);
+      animation: goldpulse .38s ease-out;
+    }
+    @keyframes goldpulse {
+      0% { transform:translate(-50%,-50%) scale(1); }
+      50% { transform:translate(-50%,-50%) scale(1.06); }
+      100% { transform:translate(-50%,-50%) scale(1); }
+    }
+
+    /* Result toast */
+    #toast {
+      position:fixed; left:50%; bottom:8%; transform:translateX(-50%);
+      background:rgba(0,0,0,.6); border:1px solid #888; border-radius:10px; padding:10px 16px;
+      z-index:6; display:none;
+    }
+
+    /* Menu */
+    #menu { position:fixed; inset:0; display:none; z-index:12; }
+    #menu .panel {
+      background:rgba(20,20,20,.92); border:2px solid #888; border-radius:16px; padding:22px; width:min(92vw,520px);
+      display:flex; flex-direction:column; gap:12px; max-height:88vh; overflow:auto;
+    }
+    .btn {
+      display:block; width:100%; text-align:center; padding:12px 16px; border-radius:10px;
+      border:2px solid #888; background:#444; color:#fff; font-weight:800; cursor:pointer;
+      transition:transform .08s ease, background .22s ease;
+    }
+    .btn:hover { background:#666; }
+    .btn:active { transform:scale(.98); }
+    .btn.red { background:#a33232; border-color:#f66; }
+    .row { display:flex; gap:10px; }
+    .muted { color:#ddd; font-size:14px; }
+    .tag { display:inline-block; padding:2px 8px; background:#333; border:1px solid #777; border-radius:999px; font-size:12px; margin-left:8px; }
+    .btn.small { width:auto; padding:8px 12px; font-weight:700; }
+    .btn.toggled { background:#888; pointer-events:auto; }
+  </style>
+</head>
+<body>
+  <!-- Start/Instruction overlay -->
+  <div id="blocker" class="overlay" style="display:flex;">
+    <div id="instructions">
+      <div id="crown">👑</div>
+      <div id="instruction-title">欢迎来到训练 / Welcome</div>
+      <div id="instruction-body">
+        <div id="intro-lines"></div>
+        <br>
+        <span class="muted" id="control-hint">W/A/S/D 移动，空格跳跃，Shift 下蹲，鼠标左键射击。按 ESC 打开菜单。</span>
+      </div>
+      <div id="hint">点击以开始 / Click to Start</div>
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+      <span id="stage-name">关卡：</span>
+      <span class="tag" id="esc-hint">按 ESC 菜单</span>
+      <span id="timer" class="tag">0.00s</span>
+      <span id="counter"></span>
+  </div>
+  <div id="scorebox"><span id="scorelabel">Score</span>: <span id="score">0</span></div>
+  <div id="crosshair"></div>
+  <div id="prompt"></div>
+
+  <!-- Keys helper -->
+  <div id="keys">
+    <div class="key w" id="kW">W</div>
+    <div class="key a" id="kA">A</div>
+    <div class="key s" id="kS">S</div>
+    <div class="key d" id="kD">D</div>
+    <div class="key space" id="kSpace">空格</div>
+    <div class="key shift" id="kShift">⇧</div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast"></div>
+
+  <!-- Menu -->
+  <div id="menu" class="overlay">
+    <div class="panel">
+      <h2 id="menu-title" style="margin:0 0 6px;">菜单 / Menu</h2>
+      <div class="row">
+        <button class="btn" id="resumeBtn">继续 / Resume</button>
+        <button class="btn" id="restartBtn">重开关卡 / Restart</button>
+      </div>
+
+      <hr style="border-color:#555; width:100%;">
+
+      <div class="muted" style="margin-bottom:6px;" id="select-level">选择关卡 / Select Level</div>
+      <button class="btn" data-level="1" id="lv1Btn">1. 按键反应 / Rhythm Keys</button>
+      <button class="btn" data-level="2" id="lv2Btn">2. 学习移动 / Movement Path</button>
+      <button class="btn" data-level="3" id="lv3Btn">3. 六边形柱按钮射击 / Hex Buttons</button>
+      <button class="btn" data-level="4" id="lv4Btn">4. 移动带打靶 / Moving Belt Target</button>
+
+      <hr style="border-color:#555; width:100%;">
+
+      <div class="muted" style="margin-bottom:6px;" id="lang-label">语言 / Language</div>
+      <div class="row">
+        <button class="btn small" id="btnLangZh">中文</button>
+        <button class="btn small" id="btnLangEn">English</button>
+      </div>
+
+      <hr style="border-color:#555; width:100%;">
+
+      <button class="btn red" id="quitBtn">返回开场 / Back to Intro</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+  /*********************
+   * I18N
+   *********************/
+  const LANG_KEY = 'scg_lang';
+  let lang = localStorage.getItem(LANG_KEY) || 'zh';
+  const i18n = {
+    zh: {
+  welcome_title: '欢迎来到训练',
+  hint_click: '点击以开始',
+  controls: 'W/A/S/D 移动，空格跳跃，⇧ 下蹲，鼠标左键射击。按 ESC 打开菜单。',
+  stage_label: '关卡：{name}',
+  stage1_name: '按键反应',
+  stage2_name: '学习移动',
+  stage3_name: '六边形柱按钮射击',
+  stage4_name: '移动带打靶',
+  menu_title: '菜单',
+  resume: '继续',
+  restart: '重开关卡',
+  select_level: '选择关卡',
+  back_to_intro: '返回开场',
+  esc_hint: '按 ESC 菜单',
+  score: '得分',
+  language: '语言',
+  intro_lines: [
+    '1）<b>按键反应</b>：屏幕会出现按键指令，在 <span style="color:#ff6;">60 秒</span>内尽快按对并获取高分。',
+    '2）<b>学习移动</b>：沿地面的 <span style="color:#7cf;">黑色金属底 + 青蓝色发光纹理</span>中的黄色路线前进，连续完成 5 段。',
+    '3）<b>六边形柱按钮射击</b>：必须站在每一面的<span style="color:#ff6;">指定小区域</span>内射击该面的红色按钮。',
+    '4）<b>移动带打靶</b>：三条不同速度的传送带上任选其一，在<span style="color:#ff6;">60 秒</span>内尽可能命中前方圆形靶子。'
+  ],
+  s1_title: '第一关：按键反应',
+  s1_body: '中央随机出现<b>W/A/S/D/空格/⇧</b>指令，含<b>↑ ↓ ← → / 蹲 / 跳</b>标记。<br>每条指令存在<b>3–5 秒</b>随机时长；越快按对得分越高（完美/极好/良好/稍慢）。',
+  s2_title: '第二关：学习移动',
+  s2_body: '沿<b style="color:#ffdd57;">标黄弯曲路线</b>前进，连续完成 <b>5</b> 段。走出黄色区域会重置到上一个起点。',
+  s3_title: '第三关：六边形柱按钮射击',
+  s3_body: '必须站在该面前方的小区域内才能射击该面的红色按钮。用最快速度命中 <b>6</b> 个按钮。',
+  s4_title: '第四关：移动带',
+  s4_body: '三条<b>不透明</b>的内嵌传送带（低/中/高三档）。<br>每条带累计<b>20 次</b>命中后将<b>停止</b>并持续以原颜色发光。',
+  rhythm_hint: '提示：按屏幕指令快速按键（W/A/S/D/空格/⇧）',
+  segments_progress: '进度：{n} / {total}',
+  on_belt_hint: '在任一传送带上命中靶子得分（低/中/高 3 种速度）',
+  miss: '未命中',
+  must_on_belt: '必须站在移动带上才计分！',
+  fallen: '玩家下坠，已重置',
+  time_up: '时间到！',
+  score_this_run: '本次得分：<b>{x}</b>',
+  click_continue: '点击继续或在菜单选择其他关卡。',
+  all_completed: '通关成功！',
+  final_time: '最终关用时：<b>{t}s</b>',
+  label_up: '上',
+  label_down: '下',
+  label_left: '左',
+  label_right: '右',
+  label_jump: '跳',
+  label_crouch: '蹲'
+},
+    en: {
+      welcome_title: 'Welcome to Training',
+      hint_click: 'Click to Start',
+      controls: 'Move: W/A/S/D · Jump: Space · Crouch: Shift · Shoot: LMB. Press ESC for menu.',
+      stage_label: 'Stage: {name}',
+      stage1_name: 'Rhythm Keys',
+      stage2_name: 'Movement Path',
+      stage3_name: 'Hex Buttons',
+      stage4_name: 'Moving Belt Target',
+      menu_title: 'Menu',
+      resume: 'Resume',
+      restart: 'Restart Level',
+      select_level: 'Select Level',
+      back_to_intro: 'Back to Intro',
+      esc_hint: 'Press ESC for menu',
+      score: 'Score',
+      language: 'Language',
+      intro_lines: [
+        '1) <b>Rhythm Keys</b>: Timed key prompts appear. Score within <span style="color:#ff6;">60s</span>.',
+        '2) <b>Movement Path</b>: Follow the yellow curve on a <span style="color:#7cf;">black metallic floor with cyan glow</span>.',
+        '3) <b>Hex Buttons</b>: Stand in each face zone to shoot the red button.',
+        '4) <b>Moving Belt</b>: Three opaque in-ground belts (slow/medium/fast). Each belt stops and glows after <b>20 hits</b>.'
+      ],
+      s1_title: 'Stage 1: Rhythm Keys',
+      s1_body: 'Prompts from <b>W/A/S/D/SPACE/SHIFT</b> with <b>↑ ↓ ← → / crouch / jump</b>. Each prompt lasts <b>3–5s</b> randomly. Faster press = higher score.',
+      s2_title: 'Stage 2: Movement Path',
+      s2_body: 'Follow the yellow curve. Finish <b>5</b> segments. Stepping out resets to last start.',
+      s3_title: 'Stage 3: Hex Buttons',
+      s3_body: 'Stand in the face zone to shoot the red button. Hit all <b>6</b> quickly.',
+      s4_title: 'Stage 4: Moving Belt',
+      s4_body: 'Three <b>opaque</b> belts (slow/medium/fast). Each belt stops after <b>20</b> scored hits and keeps glowing in its original color.',
+      rhythm_hint: 'Tip: Press the prompted key fast (W/A/S/D/Space/Shift)',
+      segments_progress: 'Segments: {n} / {total}',
+      on_belt_hint: 'Score while on any belt (slow / medium / fast)',
+      miss: 'Miss',
+      must_on_belt: 'Score only while on a belt!',
+      fallen: 'Player has fallen',
+      time_up: 'Time Up',
+      score_this_run: 'Score this run: <b>{x}</b>',
+      click_continue: 'Click to continue or pick another level in the menu.',
+      all_completed: 'All Completed',
+      final_time: 'Final time: <b>{t}s</b>',
+      label_up: 'Up',
+      label_down: 'Down',
+      label_left: 'Left',
+      label_right: 'Right',
+      label_jump: 'Jump',
+      label_crouch: 'Crouch'
+    }
+  };
+  function t(key){ return (i18n[lang] && i18n[lang][key]) || key; }
+  function ft(key, vars){
+    let s = t(key);
+    if (!vars) return s;
+    for (const k in vars){ s = s.replace(new RegExp('\\{'+k+'\\}','g'), vars[k]); }
+    return s;
+  }
+
+  /*********************
+   * Globals & Setup
+   *********************/
+  let scene, camera, renderer;
+  let playerVelocity, playerOnFloor = true;
+  const playerHeight = 1.8, crouchHeight = 1.0, playerRadius = 0.5;
+  let isCrouching = false;
+  const moveSpeed = 5.0, crouchSpeed = 2.5;
+  const gravity = 30, jumpForce = 10;
+  const keys = {};
+  const clock = new THREE.Clock();
+  const euler = new THREE.Euler(0,0,0,'YXZ');
+  const PI_2 = Math.PI / 2;
+
+  let currentStage = 1;
+  let isTimerRunning = false;
+  let levelStartTime = 0, timePausedAt = 0;
+  let stageCompleted = false;
+  let isTransitioning = false;
+
+  // Overlay mode control
+  let overlayMode = 'intro'; // 'intro' | 'end'
+
+  // UI (only those that must be updated per-frame are cached; others will be queried on demand)
+  const blocker = document.getElementById('blocker');
+  const crosshair = document.getElementById('crosshair');
+  const stageName = document.getElementById('stage-name');
+  const timerEl = document.getElementById('timer');
+  const counterEl = document.getElementById('counter');
+  const scorebox = document.getElementById('scorebox');
+  const scoreEl = document.getElementById('score');
+  const keysHud = document.getElementById('keys');
+  const kW=document.getElementById('kW'), kA=document.getElementById('kA'), kS=document.getElementById('kS'), kD=document.getElementById('kD'), kSpace=document.getElementById('kSpace'), kShift=document.getElementById('kShift');
+  const toastEl = document.getElementById('toast');
+  const menuEl = document.getElementById('menu');
+  const promptEl = document.getElementById('prompt');
+
+  // Menu elements (not cached as nodes inside applyLanguage to avoid null issues)
+  const btnLangZh = document.getElementById('btnLangZh');
+  const btnLangEn = document.getElementById('btnLangEn');
+
+  // Objects
+  const raycaster = new THREE.Raycaster();
+  const centerScreen = new THREE.Vector2(0,0);
+  let collidables = [];
+  let stageObjects = [];
+  let animated = [];
+
+  // Weapon
+  let toyGun, bullets = [], shootCooldown = 0;
+
+  // Stars
+  let starField = null, starField2 = null, starField3 = null;
+
+  // State for stages
+  let rhythmState = null;
+  let movePathState = null;
+  let hexState = null;
+  let beltState = null;
+
+  // Persistence
+  const STORAGE_KEY = 'scg4';
+  let best = { score1:null, time2:null, time3:null, score4:null };
+  function saveBest() { localStorage.setItem(STORAGE_KEY, JSON.stringify(best)); }
+  function loadBest() { try{ const v=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'); if(v) best = Object.assign(best, v);}catch{} }
+
+  /*********************
+   * Init
+   *********************/
+  init();
+  function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xA6E3FF);
+    scene.fog = new THREE.Fog(0xA6E3FF, 0, 120);
+
+    camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+    camera.position.set(0, playerHeight, 6);
+
+    renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    document.body.appendChild(renderer.domElement);
+
+    playerVelocity = new THREE.Vector3();
+
+    const amb = new THREE.AmbientLight(0xffffff, .35); scene.add(amb);
+    const dir = new THREE.DirectionalLight(0xffffff, .55); dir.position.set(-25, 35, 20); dir.castShadow = true; scene.add(dir);
+
+    // Day/Night cycle
+    const cycle = { len: 80, day: new THREE.Color(0xA6E3FF), night: new THREE.Color(0x12001E), amb, dir };
+    const dayAnim = (time, dt)=>{
+      const ph = (time % cycle.len) / cycle.len;
+      const dayMix = 0.5 - 0.5 * Math.cos(ph * Math.PI * 2);
+      const bg = cycle.night.clone().lerp(cycle.day, dayMix);
+      scene.background = bg; scene.fog.color.copy(bg);
+      // Softer nights, brighter days
+      cycle.amb.intensity = 0.12 + 0.28 * dayMix;
+      cycle.dir.intensity = 0.18 + 0.55 * dayMix;
+      // Light color shifts (purple at night → white at day)
+      const nightTint = new THREE.Color(0x5A2A7A);
+      const dayTint = new THREE.Color(0xffffff);
+      cycle.amb.color.copy(nightTint.clone().lerp(dayTint, dayMix));
+      cycle.dir.color.copy(nightTint.clone().lerp(dayTint, dayMix));
+
+      const nightAmt = Math.pow(1 - dayMix, 1.10);
+      if (starField){
+        const tw1 = 0.85 + 0.15 * Math.sin(time * 1.8);
+        starField.material.opacity = Math.min(1.0, nightAmt * tw1);
+        starField.visible = starField.material.opacity > 0.02;
+      }
+      if (starField2){
+        const tw2 = 0.70 + 0.30 * Math.cos(time * 2.6 + 0.7);
+        starField2.material.opacity = Math.min(1.0, nightAmt * tw2);
+        starField2.visible = starField2.material.opacity > 0.02;
+      }
+      if (starField3){
+        const tw3 = 0.80 + 0.20 * Math.sin(time * 1.3 + 1.4);
+        starField3.material.opacity = Math.min(1.0, nightAmt * tw3);
+        starField3.visible = starField3.material.opacity > 0.02;
+      }
+    };
+    animated.push(dayAnim);
+
+    // Stars once
+    // Layer 1: bright white
+    starField = createStars(2000, 420, 1.2, 0xffffff, false); scene.add(starField);
+    // Layer 2: cooler small white/blue
+    starField2 = createStars(1600, 430, 0.9, 0xDDEBFF, false); scene.add(starField2);
+    // Layer 3: lavender additive glow
+    starField3 = createStars(2400, 440, 1.7, 0xDCC7FF, true); scene.add(starField3);
+    loadBest();
+
+    createToyGun(); camera.add(toyGun); scene.add(camera);
+
+    blocker.addEventListener('click', ()=>{ 
+        if (document.pointerLockElement !== document.body) {
+            document.body.requestPointerLock().catch(err => { console.warn("Pointer lock request failed:", err); });
+        }
+    });
+    document.addEventListener('pointerlockchange', onLockChange);
+    document.addEventListener('pointerlockerror', (e)=>{ console.warn("Pointer lock error", e); });
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+    addMenuHandlers();
+    addLangHandlers();
+    window.addEventListener('resize', ()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+    loadStage(1);
+    applyLanguage();   // hardened lookups — safe even if some nodes missing
+    animate();
+  }
+
+  /*********************
+   * Language
+   *********************/
+  function addLangHandlers(){
+    const setLang = (l)=>{
+      lang = l;
+      localStorage.setItem(LANG_KEY, lang);
+      // Toggle visuals but keep clickable
+      const zhBtn = document.getElementById('btnLangZh'), enBtn = document.getElementById('btnLangEn');
+      if (zhBtn) zhBtn.classList.toggle('toggled', lang==='zh');
+      if (enBtn) enBtn.classList.toggle('toggled', lang==='en');
+      applyLanguage();
+      if (currentStage===1) counterEl.innerHTML = t('rhythm_hint');
+      if (currentStage===2) counterEl.innerHTML = ft('segments_progress', {n: movePathState?movePathState.index:0, total: movePathState?movePathState.total:5});
+      if (currentStage===4) counterEl.innerHTML = t('on_belt_hint');
+      if (overlayMode === 'intro') updateIntroForStage();
+    };
+    if (btnLangZh) btnLangZh.onclick = ()=> setLang('zh');
+    if (btnLangEn) btnLangEn.onclick = ()=> setLang('en');
+    // Initialize
+    const zhBtn = document.getElementById('btnLangZh'), enBtn = document.getElementById('btnLangEn');
+    if (zhBtn) zhBtn.classList.toggle('toggled', lang==='zh');
+    if (enBtn) enBtn.classList.toggle('toggled', lang==='en');
+  }
+
+  function applyLanguage(){
+    const setTxt = (id, text)=>{ const el=document.getElementById(id); if (el) el.textContent = text; };
+    const setHTML = (id, html)=>{ const el=document.getElementById(id); if (el) el.innerHTML = html; };
+
+    setTxt('instruction-title', t('welcome_title'));
+    setTxt('hint', t('hint_click'));
+    setTxt('control-hint', t('controls'));
+
+    const introLines = (i18n[lang]?.intro_lines||[]).map(x=>`<div>${x}</div>`).join('');
+    setHTML('intro-lines', introLines);
+
+    setTxt('menu-title', t('menu_title'));
+    setTxt('resumeBtn', t('resume'));
+    setTxt('restartBtn', t('restart'));
+    setTxt('select-level', t('select_level'));
+    setTxt('quitBtn', t('back_to_intro'));
+    setTxt('lang-label', t('language'));
+
+    setTxt('lv1Btn', '1. ' + t('stage1_name'));
+    setTxt('lv2Btn', '2. ' + t('stage2_name'));
+    setTxt('lv3Btn', '3. ' + t('stage3_name'));
+    setTxt('lv4Btn', '4. ' + t('stage4_name'));
+
+    setTxt('esc-hint', t('esc_hint'));
+    setTxt('scorelabel', t('score'));
+    if (typeof kSpace !== 'undefined' && kSpace) kSpace.textContent = (lang==='zh' ? '空格' : 'Space');
+    if (typeof kShift !== 'undefined' && kShift) kShift.textContent = (lang==='zh' ? '⇧' : 'Shift');
+
+    const stageNames = {1:t('stage1_name'),2:t('stage2_name'),3:t('stage3_name'),4:t('stage4_name')};
+    if (stageName) stageName.textContent = ft('stage_label', {name: stageNames[currentStage]});
+  }
+
+  /*********************
+   * Overlay helpers
+   *********************/
+  function showOverlay(title, bodyHTML, mode='intro'){
+    overlayMode = mode;
+    const tEl = document.getElementById('instruction-title');
+    const bEl = document.getElementById('instruction-body');
+    if (tEl) tEl.textContent = title;
+    if (bEl) bEl.innerHTML = bodyHTML;
+    blocker.style.display = 'flex';
+  }
+  function showIntro(){ overlayMode='intro'; blocker.style.display='flex'; }
+  function hideIntro(){ blocker.style.display='none'; }
+
+  /*********************
+   * Pointer Lock / Menu
+   *********************/
+  function onLockChange() {
+    if (document.pointerLockElement === document.body) {
+      hideIntro();
+      crosshair.style.display = 'block';
+      keysHud.style.opacity = '1';
+      resumeTimer();
+    } else {
+      crosshair.style.display = 'none';
+      keysHud.style.opacity = '0';
+      pauseTimer();
+      if (!isTransitioning && !stageCompleted) menuEl.style.display='flex';
+    }
+  }
+  function addMenuHandlers() {
+    const resumeBtn = document.getElementById('resumeBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const quitBtn = document.getElementById('quitBtn');
+    if (resumeBtn) resumeBtn.onclick = ()=>{ document.body.requestPointerLock().catch(err => console.warn("Pointer lock request failed:", err)); menuEl.style.display='none'; };
+    if (restartBtn) restartBtn.onclick = ()=>{ menuEl.style.display='none'; hideIntro(); isTransitioning=true; setTimeout(()=>{ loadStage(currentStage); isTransitioning=false; }, 80); };
+    if (quitBtn) quitBtn.onclick = ()=>{ menuEl.style.display='none'; showIntro(); if (overlayMode==='intro') updateIntroForStage(); };
+    [...menuEl.querySelectorAll('button[data-level]')].forEach(btn=>{
+      btn.onclick=()=>{
+        const lv = parseInt(btn.dataset.level,10);
+        menuEl.style.display='none';
+        isTransitioning=true;
+        setTimeout(()=>{ loadStage(lv); isTransitioning=false; }, 80);
+      };
+    });
+  }
+
+  /*********************
+   * Timer
+   *********************/
+  function startTimer() { isTimerRunning = true; levelStartTime = clock.getElapsedTime(); timerEl.textContent = '0.00s'; timerEl.style.display='inline-block'; }
+  function pauseTimer() { if (isTimerRunning) { isTimerRunning=false; timePausedAt=clock.getElapsedTime(); } }
+  function resumeTimer() { if (!isTimerRunning) { if (levelStartTime===0) levelStartTime = clock.getElapsedTime(); else levelStartTime += (clock.getElapsedTime() - timePausedAt); isTimerRunning = true; } }
+
+  /*********************
+   * Scene helpers
+   *********************/
+  function clearStage() {
+    stageObjects.forEach(o=>{
+      if (o.parent) o.parent.remove(o);
+      if (o.geometry) o.geometry.dispose?.();
+      if (o.material) { if (Array.isArray(o.material)) o.material.forEach(m=>m.dispose?.()); else o.material.dispose?.(); }
+    });
+    stageObjects=[]; collidables=[]; animated = animated.filter(fn => !fn.__stageBound);
+    bullets.forEach(b=>{ if(b.parent) b.parent.remove(b); b.geometry.dispose?.(); if(b.material) b.material.dispose?.(); }); bullets=[];
+    shootCooldown = 0;
+    camera.position.set(0, playerHeight, 6);
+    camera.quaternion.set(0,0,0,1);
+    euler.set(0,0,0,'YXZ');
+
+    scorebox.style.display = 'none';
+    counterEl.textContent = '';
+    promptEl.style.display = 'none';
+  }
+
+  function createFloorTexturesBlackGlow() {
+    // Color texture: black base + cyan lines
+    const size = 512;
+    const canvasC = document.createElement('canvas'); canvasC.width = size; canvasC.height = size;
+    const c = canvasC.getContext('2d');
+    c.fillStyle = '#0b0b0d'; c.fillRect(0,0,size,size);
+    c.strokeStyle = '#13d5ff'; c.lineWidth = 2.4;
+    c.shadowColor = 'rgba(19,213,255,0.55)'; c.shadowBlur = 3.5;
+
+    const hexRadius = 40;
+    const hexHeight = hexRadius * Math.sqrt(3);
+    const hexWidth = hexRadius * 2;
+    const horizDist = hexWidth * 3 / 4;
+
+    for (let row = -1; row < size / hexHeight + 1; row++) {
+      for (let col = -1; col < size / horizDist + 1; col++) {
+        let x = col * horizDist, y = row * hexHeight;
+        if (col % 2 === 1) y += hexHeight / 2;
+        c.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 3) * i;
+          const px = x + hexRadius * Math.cos(angle);
+          const py = y + hexRadius * Math.sin(angle);
+          if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
+        }
+        c.closePath(); c.stroke();
+      }
+    }
+    const colorTex = new THREE.CanvasTexture(canvasC);
+    colorTex.wrapS = THREE.RepeatWrapping; colorTex.wrapT = THREE.RepeatWrapping;
+    colorTex.anisotropy = 4;
+
+    // Emissive mask: black + white lines
+    const canvasE = document.createElement('canvas'); canvasE.width = size; canvasE.height = size;
+    const ectx = canvasE.getContext('2d');
+    ectx.fillStyle = '#000'; ectx.fillRect(0,0,size,size);
+    ectx.strokeStyle = '#fff'; ectx.lineWidth = 2.0;
+    for (let row = -1; row < size / hexHeight + 1; row++) {
+      for (let col = -1; col < size / horizDist + 1; col++) {
+        let x = col * horizDist, y = row * hexHeight;
+        if (col % 2 === 1) y += hexHeight / 2;
+        ectx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 3) * i;
+          const px = x + hexRadius * Math.cos(angle);
+          const py = y + hexRadius * Math.sin(angle);
+          if (i === 0) ectx.moveTo(px, py); else ectx.lineTo(px, py);
+        }
+        ectx.closePath(); ectx.stroke();
+      }
+    }
+    const emissiveMask = new THREE.CanvasTexture(canvasE);
+    emissiveMask.wrapS = THREE.RepeatWrapping; emissiveMask.wrapT = THREE.RepeatWrapping;
+    emissiveMask.anisotropy = 4;
+
+    return { colorTex, emissiveMask };
+  }
+
+  function createFloorCircle(radius) {
+    const geo = new THREE.CylinderGeometry(radius, radius, .2, 64);
+    // UVs
+    const pos = geo.attributes.position;
+    const uv = new Float32Array(pos.count * 2);
+    const uvScale = 1 / 10;
+    for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const z = pos.getZ(i);
+        uv[i * 2] = x * uvScale;
+        uv[i * 2 + 1] = z * uvScale;
+    }
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+
+    const { colorTex, emissiveMask } = createFloorTexturesBlackGlow();
+    const mat = new THREE.MeshStandardMaterial({
+        color: 0x111218,
+        map: colorTex,
+        roughness: 0.28,
+        metalness: 0.65,
+        emissive: new THREE.Color(0x12e9ff),
+        emissiveIntensity: 1.0,
+        emissiveMap: emissiveMask
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.y = -0.1;
+    mesh.receiveShadow = true;
+    scene.add(mesh); stageObjects.push(mesh); collidables.push(mesh);
+    return mesh;
+  }
+
+  function createCircularWall(radius, height=2.2, color=0x666666) {
+    const wallSegs = 24, thickness=.4;
+    for(let i=0;i<wallSegs;i++){
+      const a0 = (i/wallSegs)*Math.PI*2, a1=((i+1)/wallSegs)*Math.PI*2;
+      const mid = (a0+a1)/2;
+      const w = radius * (a1-a0) * 1.02;
+      const d = thickness;
+      const x = Math.cos(mid)*(radius+.0);
+      const z = Math.sin(mid)*(radius+.0);
+      const g = new THREE.BoxGeometry(w, height, d);
+      const m = new THREE.MeshStandardMaterial({ color });
+      const box = new THREE.Mesh(g,m);
+      box.position.set(x, height/2, z);
+      box.rotation.y = -mid;
+      box.castShadow = false; box.receiveShadow = true;
+      scene.add(box); stageObjects.push(box); collidables.push(box);
+    }
+  }
+    
+  function createGemLamps(radius) {
+    const lamps = [
+        { dist: 0.85, count: 8, offset: 0 },
+        { dist: 0.45, count: 4, offset: Math.PI / 4 }
+    ];
+    const colors = [0xff00ff, 0x00ffff, 0xffff00, 0x00ff00, 0xff8800];
+    const lampHeight = 0.6;
+    let lampIndex = 0;
+
+    lamps.forEach(ring => {
+        for (let i = 0; i < ring.count; i++) {
+            const group = new THREE.Group();
+            
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
+            const base = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 0.2, 8), baseMat);
+            group.add(base);
+
+            const gemColor = colors[lampIndex % colors.length];
+            const gemMat = new THREE.MeshStandardMaterial({ 
+                color: gemColor, emissive: gemColor, emissiveIntensity: 1.4,
+                transparent: true, opacity: 0.75
+            });
+            const gem = new THREE.Mesh(new THREE.IcosahedronGeometry(0.25, 0), gemMat);
+            gem.position.y = 0.1 + lampHeight / 2;
+            group.add(gem);
+
+            const light = new THREE.PointLight(gemColor, 0.9, 3);
+            light.position.y = 0.1 + lampHeight / 2;
+            group.add(light);
+            
+            const angle = (i / ring.count) * Math.PI * 2 + ring.offset;
+            const dist = ring.dist * radius;
+            group.position.set(Math.cos(angle) * dist, 0.1, Math.sin(angle) * dist);
+
+            scene.add(group);
+            stageObjects.push(group);
+
+            const initialY = gem.position.y;
+            const localIndex = lampIndex;
+            const anim = (time, dt) => {
+              gem.position.y = initialY + Math.sin(time * 2 + localIndex * 0.5) * 0.1;
+              light.position.y = gem.position.y;
+            };
+            anim.__stageBound = true;
+            animated.push(anim);
+            lampIndex++;
+        }
+    });
+  }
+
+  function createStars(count=1500, radius=420, size=1.2, color=0xffffff, additive=false){
+    const geom = new THREE.BufferGeometry();
+    const positions = new Float32Array(count*3);
+    for(let i=0;i<count;i++){
+      const theta = Math.acos(2*Math.random()-1);
+      const phi = Math.random()*Math.PI*2;
+      const r = radius*(0.92 + Math.random()*0.08);
+      const x = r*Math.sin(theta)*Math.cos(phi);
+      const y = r*Math.cos(theta);
+      const z = r*Math.sin(theta)*Math.sin(phi);
+      positions[i*3+0]=x; positions[i*3+1]=y; positions[i*3+2]=z;
+    }
+    geom.setAttribute('position', new THREE.BufferAttribute(positions,3));
+    const mat = new THREE.PointsMaterial({ color:color, size:size, sizeAttenuation:true, transparent:true, opacity:0 });
+    mat.depthWrite = false;
+    mat.fog = false; // keep stars bright even with scene fog
+    if (additive) mat.blending = THREE.AdditiveBlending;
+    const stars = new THREE.Points(geom, mat);
+    stars.frustumCulled = false;
+    return stars;
+  }
+
+  function showToast(msg, ms=1200) { toastEl.innerHTML = msg; toastEl.style.display='block'; setTimeout(()=>{ toastEl.style.display='none'; }, ms); }
+  function flashPromptGold(){ if(!promptEl) return; promptEl.classList.add('goldflash'); setTimeout(()=>{ promptEl.classList.remove('goldflash'); promptEl.style.display='none'; }, 260); }
+
+  /*********************
+   * Toy Gun & Bullets
+   *********************/
+  function createToyGun(){
+    toyGun = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color:0x4a90e2, roughness:.4, metalness:.1 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(.25,.25,.6), bodyMat); body.position.set(0,-.1,-.25); toyGun.add(body);
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(.1,.12,.4,16), bodyMat); handle.position.set(0,-.4,-.15); handle.rotation.x = -0.3; toyGun.add(handle);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(.08,.08,.5,16), new THREE.MeshStandardMaterial({ color:0xf5a623, roughness:.2, metalness:.5 })); barrel.position.set(0,-.05,-.7); barrel.rotation.x=Math.PI/2; toyGun.add(barrel);
+    toyGun.position.set(.5,-.5,-1.0); toyGun.rotation.y = -0.15;
+  }
+  function onMouseDown(e){
+    if (!document.pointerLockElement) return;
+    if (shootCooldown>0) return;
+    shootCooldown = .18;
+
+    const bullet = new THREE.Mesh(new THREE.SphereGeometry(.05,16,8), new THREE.MeshStandardMaterial({ color:0xffa500, emissive:0xffa500, emissiveIntensity:2 }));
+    const muzzle = toyGun.children[2];
+    const muzzlePos = new THREE.Vector3(); muzzle.getWorldPosition(muzzlePos);
+    raycaster.setFromCamera(centerScreen, camera);
+    const intersects = raycaster.intersectObjects(collidables, true);
+    let target;
+    if (intersects.length>0) target = intersects[0].point.clone();
+    else { target = new THREE.Vector3(); camera.getWorldDirection(target); target.multiplyScalar(1000).add(camera.position); }
+    bullet.position.copy(muzzlePos);
+    bullet.velocity = target.clone().sub(muzzlePos).normalize().multiplyScalar(100);
+    bullet.life = 5;
+    bullets.push(bullet);
+    scene.add(bullet);
+  }
+  function updateBullets(dt){
+    for(let i=bullets.length-1;i>=0;i--){
+      const b = bullets[i];
+      b.life -= dt;
+      const step = b.velocity.clone().multiplyScalar(dt);
+      const ray = new THREE.Raycaster(b.position, b.velocity.clone().normalize());
+      const hit = ray.intersectObjects(collidables, true);
+      let collided = false;
+
+      if (hit.length>0 && hit[0].distance < step.length()){
+        const obj = hit[0].object;
+        const hitPoint = hit[0].point;
+        
+        if (currentStage===3 && obj.userData?.isHexButton){
+          const faceIdx = obj.userData.faceIndex;
+          if (!hexState.hit[faceIdx] && isPlayerInsideZone(faceIdx)) {
+            hexState.hit[faceIdx] = true;
+            obj.material.color.setHex(0x22dd22);
+            hexState.hitCount++;
+            counterEl.innerHTML = (lang==='zh' ? '已命中：' : 'Hit:') + ` ${hexState.hitCount} / 6`;
+            showToast((lang==='zh' ? '面命中 ' : 'Face OK ') + (faceIdx+1), 800);
+            if (hexState.hitCount>=6) { completeStage(3); }
+          } else {
+            showToast(lang==='zh' ? '请站在该面的指定区域内再射击！' : 'Stand in the face zone to shoot!', 1000);
+          }
+          collided = true;
+        }
+        
+        const targetObject = obj.userData?.isScoreTarget ? obj : (obj.parent?.userData?.isScoreTarget ? obj.parent : null);
+        if (currentStage===4 && targetObject){
+          if (beltState.onBelt && beltState.activeBelt) {
+            beltState.score++;
+            scoreEl.textContent = beltState.score;
+            const s = beltState.activeBelt;
+            s.hits = (s.hits||0) + 1;
+            if (!s.stopped && s.hits >= 20) {
+              s.stopped = true;
+              s.speed = 0;
+              s.mesh.material.emissiveIntensity = 0.85;
+              s.mesh.children.forEach(ch => { if (ch.material && 'emissiveIntensity' in ch.material) ch.material.emissiveIntensity = 2.3; });
+              showToast((lang==='zh'?'该传送带已停止':'This belt has stopped'), 1200);
+              beltState.completedCount = (beltState.completedCount||0) + 1;
+              if (beltState.completedCount >= 3) { completeStage(4); }
+            }
+            showToast('<b>+1</b>', 600);
+            createHeartFireworks(hitPoint);
+          } else {
+            showToast(t('must_on_belt'), 900);
+          }
+          collided = true;
+        } else if (hit.length > 0) { collided = true; }
+
+        if (collided) { b.position.copy(hit[0].point); }
+      }
+      if (collided || b.life<=0){ scene.remove(b); b.geometry.dispose(); b.material.dispose(); bullets.splice(i,1); continue; }
+      b.position.add(step);
+    }
+    if (shootCooldown>0) shootCooldown -= dt;
+  }
+
+  /*********************
+   * Movement & Inputs
+   *********************/
+  function onMouseMove(e){
+    if (document.pointerLockElement!==document.body) return;
+    const dx = e.movementX||0, dy=e.movementY||0;
+    if (Math.abs(dx)>500 || Math.abs(dy)>500) return;
+    euler.setFromQuaternion(camera.quaternion);
+    euler.y -= dx * 0.002;
+    euler.x -= dy * 0.002;
+    euler.x = Math.max(-PI_2, Math.min(PI_2, euler.x));
+    camera.quaternion.setFromEuler(euler);
+  }
+  function onKeyDown(e){
+    keys[e.code]=true;
+    if (e.code==='Escape'){
+      if (document.pointerLockElement) { isTransitioning=true; document.exitPointerLock(); setTimeout(()=>isTransitioning=false,120); }
+      else { menuEl.style.display='flex'; }
+      return;
+    }
+    // Stage 1 rhythm hit check
+    if (currentStage===1 && rhythmState && rhythmState.active){
+      handleRhythmKeyPress(e.code);
+    }
+  }
+  function onKeyUp(e){ keys[e.code]=false; }
+
+  function updatePlayer(dt){
+    const dir = new THREE.Vector3();
+    if (keys['KeyW']) dir.z -= 1;
+    if (keys['KeyS']) dir.z += 1;
+    if (keys['KeyA']) dir.x -= 1;
+    if (keys['KeyD']) dir.x += 1;
+
+    kW.classList.toggle('pressed', !!keys['KeyW']); kA.classList.toggle('pressed', !!keys['KeyA']);
+    kS.classList.toggle('pressed', !!keys['KeyS']); kD.classList.toggle('pressed', !!keys['KeyD']);
+    kSpace.classList.toggle('pressed', !!keys['Space']); kShift.classList.toggle('pressed', !!(keys['ShiftLeft']||keys['ShiftRight']));
+
+    const wantCrouch = (keys['ShiftLeft']||keys['ShiftRight']);
+    if (wantCrouch) { if (!isCrouching && playerOnFloor) camera.position.y -= (playerHeight - crouchHeight); isCrouching=true; }
+    else if (isCrouching) { camera.position.y += (playerHeight - crouchHeight); isCrouching=false; }
+
+    const speed = isCrouching ? crouchSpeed : moveSpeed;
+    if (dir.lengthSq()>0){
+      dir.normalize();
+      const worldDir = dir.clone().applyQuaternion(camera.quaternion);
+      camera.position.x += worldDir.x * speed * dt;
+      camera.position.z += worldDir.z * speed * dt;
+    }
+    
+    if (currentStage === 4 && beltState && beltState.onBelt && beltState.activeBelt){
+        camera.position.x += beltState.activeBelt.lastMove;
+    }
+
+    const curH = isCrouching?crouchHeight:playerHeight;
+    const down = new THREE.Raycaster(camera.position, new THREE.Vector3(0,-1,0), 0, curH+0.25);
+    const hits = down.intersectObjects(collidables, true);
+    playerOnFloor = hits.length>0;
+    if (playerOnFloor) {
+      const groundY = hits[0].point.y;
+      if (playerVelocity.y<=0){ playerVelocity.y=0; camera.position.y = groundY + curH; }
+    } else {
+      playerVelocity.y -= gravity * dt;
+    }
+    if (keys['Space'] && playerOnFloor) { playerVelocity.y = jumpForce; playerOnFloor=false; }
+    camera.position.y += playerVelocity.y * dt;
+
+    if (camera.position.y < -20) {
+        showToast(t('fallen'), 2000);
+        isTransitioning = true;
+        setTimeout(() => { loadStage(currentStage); isTransitioning = false; }, 2000);
+    }
+
+    const playerBox = new THREE.Box3().setFromCenterAndSize(camera.position, new THREE.Vector3(playerRadius*2, curH, playerRadius*2));
+    playerBox.min.y = camera.position.y - curH; playerBox.max.y = camera.position.y;
+    collidables.forEach(o=>{
+      if (!o.geometry) return;
+      const box = new THREE.Box3().setFromObject(o);
+      if (playerBox.intersectsBox(box)){
+        const center = new THREE.Vector3(); playerBox.getCenter(center);
+        const oc = new THREE.Vector3(); box.getCenter(oc);
+        const overlap = new THREE.Vector3().subVectors(center, oc);
+        const halfP = new THREE.Vector3(); playerBox.getSize(halfP).multiplyScalar(.5);
+        const halfO = new THREE.Vector3(); box.getSize(halfO).multiplyScalar(.5);
+        const pen = new THREE.Vector3( (halfP.x+halfO.x)-Math.abs(overlap.x), (halfP.y+halfO.y)-Math.abs(overlap.y), (halfP.z+halfO.z)-Math.abs(overlap.z) );
+        if (pen.x < pen.z && pen.x < pen.y) camera.position.x += pen.x * Math.sign(overlap.x);
+        else if (pen.z < pen.y) camera.position.z += pen.z * Math.sign(overlap.z);
+        else { if (playerVelocity.y>0 && overlap.y<0) playerVelocity.y=0; camera.position.y += pen.y * Math.sign(overlap.y); }
+      }
+    });
+  }
+
+  /*********************
+   * Level Loader
+   *********************/
+  function loadStage(idx){
+    clearStage();
+    currentStage = idx;
+    stageCompleted = false;
+    toyGun.visible = (idx > 1);
+    scoreEl.textContent = '0';
+
+    const stageNames = {1:t('stage1_name'),2:t('stage2_name'),3:t('stage3_name'),4:t('stage4_name')};
+    if (stageName) stageName.textContent = ft('stage_label', {name: stageNames[idx]});
+
+    if (idx===1) {
+      setupStage1_Rhythm(); timerEl.style.display='inline-block'; scorebox.style.display='block'; startTimer();
+    } else if (idx===2) {
+      setupStage2_MovementPath(); timerEl.style.display='inline-block'; counterEl.innerHTML = ft('segments_progress', {n:0, total:5}); startTimer();
+    } else if (idx===3) {
+      setupStage3_HexButtons(); timerEl.style.display='inline-block'; counterEl.innerHTML = (lang==='zh' ? '已命中：' : 'Hit:') + ' 0 / 6'; startTimer();
+    } else if (idx===4) {
+      setupStage4_MovingBelts(); timerEl.style.display='inline-block'; scorebox.style.display='block'; counterEl.innerHTML = t('on_belt_hint'); startTimer();
+    }
+    showIntro(); updateIntroForStage();
+  }
+  
+  /*********************
+   * Stage 1 — Rhythm Keys (60s) + markers
+   *********************/
+  function setupStage1_Rhythm() {
+    const R = 18;
+    createFloorCircle(R);
+    createCircularWall(R + 0.6, 2.2, 0x666);
+    createGemLamps(R);
+
+    rhythmState = {
+      timeLimit: 60,
+      lifetimeMin: 3.0, lifetimeMax: 5.0,
+      minGap: 0.25, maxGap: 0.7,
+      score: 0, active: false, expected: null, spawnTime: 0, activeUntil: 0, nextPromptAt: 0, misses: 0
+    };
+    scoreEl.textContent = '0';
+    counterEl.innerHTML = t('rhythm_hint');
+    promptEl.style.display = 'none';
+  }
+
+  function keyPool() {
+    if (lang === 'zh') {
+      return [
+        { code:'KeyW', label: ()=>`W ↑ — ${t('label_up')}` },
+        { code:'KeyA', label: ()=>`A ← — ${t('label_left')}` },
+        { code:'KeyS', label: ()=>`S ↓ — ${t('label_down')}` },
+        { code:'KeyD', label: ()=>`D → — ${t('label_right')}` },
+        { code:'Space', label: ()=>`空格 — ${t('label_jump')}` },
+        { code:'Shift', label: ()=>`⇧ — ${t('label_crouch')}` }
+      ];
+    } else {
+      return [
+        { code:'KeyW', label: ()=>`W ↑ — ${t('label_up')}` },
+        { code:'KeyA', label: ()=>`A ← — ${t('label_left')}` },
+        { code:'KeyS', label: ()=>`S ↓ — ${t('label_down')}` },
+        { code:'KeyD', label: ()=>`D → — ${t('label_right')}` },
+        { code:'Space', label: ()=>`SPACE [${t('label_jump')}]` },
+        { code:'Shift', label: ()=>`SHIFT [${t('label_crouch')}]` }
+      ];
+    }
+  }
+  function randomPrompt() { const pool = keyPool(); return pool[Math.floor(Math.random() * pool.length)]; }
+  function spawnPrompt(now) {
+    rhythmState.expected = randomPrompt();
+    rhythmState.spawnTime = now;
+    const life = rhythmState.lifetimeMin + Math.random() * (rhythmState.lifetimeMax - rhythmState.lifetimeMin);
+    rhythmState.activeUntil = now + life;
+    rhythmState.active = true;
+    promptEl.innerHTML = `${rhythmState.expected.label()}<small>${lang==='zh'?'尽快按下对应键':'Press the matching key quickly'}</small>`;
+    promptEl.style.display = 'block';
+  }
+  function normalizeCode(code){
+    if (code==='Space') return 'Space';
+    if (code==='ShiftLeft' || code==='ShiftRight') return 'Shift';
+    return code;
+  }
+  function scoreFromDelta(delta) {
+    let pts = 0, label = '';
+    if (delta <= 0.12) { pts = 100; label = (lang==='zh' ? '完美' : 'Perfect'); }
+    else if (delta <= 0.25) { pts = 80; label = (lang==='zh' ? '极好' : 'Great'); }
+    else if (delta <= 0.5) { pts = 50; label = (lang==='zh' ? '良好' : 'Good'); }
+    else if (delta <= 1.0) { pts = 20; label = (lang==='zh' ? '稍慢' : 'Late'); }
+    else { pts = 0; label = (lang==='zh' ? '未命中' : 'Miss'); }
+    return { pts, label };
+  }
+  function handleRhythmKeyPress(code) {
+    if (!rhythmState || !rhythmState.active) return;
+    const expect = rhythmState.expected.code;
+    const pressed = normalizeCode(code);
+    if (pressed !== expect) return;
+    const delta = Math.max(0, clock.getElapsedTime() - rhythmState.spawnTime);
+    const { pts, label } = scoreFromDelta(delta);
+    if (pts>0) { rhythmState.score += pts; scoreEl.textContent = rhythmState.score; showToast(`<b>${label}</b> +${pts}`, 700); flashPromptGold(); }
+    else { rhythmState.misses++; showToast(t('miss'), 500); promptEl.style.display = 'none'; }
+    rhythmState.active = false;
+    rhythmState.nextPromptAt = clock.getElapsedTime() + (rhythmState.minGap + Math.random() * (rhythmState.maxGap - rhythmState.minGap));
+  }
+  function endStage1() {
+    if (stageCompleted) return;
+    stageCompleted = true; pauseTimer();
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (best.score1==null || rhythmState.score>best.score1) best.score1 = rhythmState.score;
+    saveBest();
+    const body = `${ft('score_this_run',{x:rhythmState.score})}<br><span class="muted">${t('click_continue')}</span>`;
+    showOverlay(t('time_up'), body, 'end');
+  }
+
+  /*********************
+   * Stage 2 — Movement Path (5 segments)
+   *********************/
+  function setupStage2_MovementPath(){
+    const R = 18;
+    createFloorCircle(R);
+    createCircularWall(R+0.6, 2.2, 0x666);
+    createGemLamps(R);
+
+    movePathState = {
+      radius: R, halfWidth: 1.0, total: 5, index: 0,
+      start: new THREE.Vector3(0, 0, 0), end: null,
+      strip: null, points: null, lastCheckpoint: new THREE.Vector3(0, 0, 0),
+      startLandmark: null, endLandmark: null, segmentCompleted: false, curves: []
+    };
+    spawnNextPathSegment();
+  }
+
+  function createLandmark(isStart) {
+    const group = new THREE.Group();
+    const baseMat = new THREE.MeshStandardMaterial({ color: isStart ? 0x00ff55 : 0xff2b2b, metalness: 0.35, roughness: 0.35, emissive: (isStart ? 0x009933 : 0x990000), emissiveIntensity: 0.65 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 0.2, 16), baseMat);
+    base.position.y = 0.1; group.add(base);
+
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.5, 8), new THREE.MeshStandardMaterial({ color: 0xcccccc }));
+    pole.position.y = 0.1 + 0.75; group.add(pole);
+
+    const gemMat = new THREE.MeshStandardMaterial({ color: isStart ? 0x81c784 : 0xe57373, emissive: isStart ? 0x388e3c : 0xc62828, metalness:0.4, roughness:0.3, transparent:false, opacity:1, emissive: (isStart ? 0x00aa33 : 0xaa0000), emissiveIntensity: 1.0 });
+    const gem = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 0), gemMat);
+    gem.position.y = 0.1 + 1.5 + 0.1; group.add(gem);
+    const anim = (time, dt) => { gem.rotation.y += dt * 0.5; }; anim.__stageBound = true; animated.push(anim);
+    return group;
+  }
+
+  // --- Path helpers ---
+  function onSegment(p, q, r) { return (q.x <= Math.max(p.x, r.x) && q.x >= Math.min(p.x, r.x) && q.z <= Math.max(p.z, r.z) && q.z >= Math.min(p.z, r.z)); }
+  function orientation(p, q, r) { const val = (q.z - p.z) * (r.x - q.x) - (q.x - p.x) * (r.z - q.z); if (val == 0) return 0; return (val > 0) ? 1 : 2; }
+  function segmentsIntersect(p1, q1, p2, q2) {
+    const o1 = orientation(p1, q1, p2), o2 = orientation(p1, q1, q2), o3 = orientation(p2, q2, p1), o4 = orientation(p2, q2, q1);
+    if (o1 != o2 && o3 != o4) return true;
+    if (o1 == 0 && onSegment(p1, p2, q1)) return true;
+    if (o2 == 0 && onSegment(p1, q2, q1)) return true;
+    if (o3 == 0 && onSegment(p2, p1, q2)) return true;
+    if (o4 == 0 && onSegment(p2, q1, q2)) return true;
+    return false;
+  }
+
+  function randomCurveFrom(start, radius, existingCurves) {
+      let curve, end, points; const margin = 1.5; let attempts = 0;
+      while(attempts < 200) {
+          attempts++;
+          const cps = [start.clone()]; const count = 3 + Math.floor(Math.random() * 2);
+          for (let i = 0; i < count; i++) { const a = Math.random() * Math.PI * 2; const r = (0.2 + Math.random() * 0.7) * (radius - margin); cps.push(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r)); }
+          const endAngle = Math.random() * Math.PI * 2; const endRadius = (0.5 + Math.random() * 0.4) * (radius - margin);
+          end = new THREE.Vector3(Math.cos(endAngle) * endRadius, 0, Math.sin(endAngle) * endRadius); cps.push(end);
+          curve = new THREE.CatmullRomCurve3(cps, false, 'centripetal', 0.5); points = curve.getPoints(30);
+
+          let isValid = true;
+          for(const p of points) { if (p.length() > radius - margin) { isValid = false; break; } }
+          if (!isValid) continue;
+
+          for (let i = 0; i < points.length - 1 && isValid; i++) {
+            for (let j = i + 2; j < points.length - 1; j++) { if (segmentsIntersect(points[i], points[i+1], points[j], points[j+1])) { isValid = false; break; } }
+            for (const existingCurve of existingCurves) {
+              const existingPoints = existingCurve.getPoints(30);
+              for (let k = 0; k < existingPoints.length - 1; k++) { if (segmentsIntersect(points[i], points[i+1], existingPoints[k], existingPoints[k+1])) { isValid = false; break; } }
+              if (!isValid) break;
+            }
+          }
+          if (isValid) return { curve, end };
+      }
+      console.warn("Could not generate a valid path after 200 attempts. Using last attempt."); return { curve, end };
+  }
+
+  function makeStripFromCurve(curve, halfWidth){
+    const samples = 160, pts = curve.getPoints(samples);
+    const geom = new THREE.BufferGeometry();
+    const positions = new Float32Array(pts.length*2*3);
+    const uvs = new Float32Array(pts.length*2*2);
+    for(let i=0;i<pts.length;i++){
+      const p = pts[i], prev = pts[Math.max(0,i-1)], next = pts[Math.min(pts.length-1,i+1)];
+      const tangent = new THREE.Vector3().subVectors(next, prev).normalize();
+      const left = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+      const pL = p.clone().addScaledVector(left, halfWidth);
+      const pR = p.clone().addScaledVector(left, -halfWidth);
+      pL.y = 0.02; pR.y = 0.02;
+      positions.set([pL.x,pL.y,pL.z], i*6+0); positions.set([pR.x,pR.y,pR.z], i*6+3);
+      uvs.set([0, i/(pts.length-1)], i*4+0); uvs.set([1, i/(pts.length-1)], i*4+2);
+    }
+    const indices=[];
+    for(let i=0;i<pts.length-1;i++){ const a=i*2, b=i*2+1, c=i*2+2, d=i*2+3; indices.push(a,b,c, b,d,c); }
+    geom.setAttribute('position', new THREE.BufferAttribute(positions,3));
+    geom.setAttribute('uv', new THREE.BufferAttribute(uvs,2)); geom.setIndex(indices); geom.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ color:0xffea00, emissive:0xffb300, emissiveIntensity:0.55, metalness:.35, roughness:.35, emissive:0x332200, metalness:.0, roughness:.35, side:THREE.DoubleSide, transparent:false, opacity:1 });
+    const mesh = new THREE.Mesh(geom, mat); mesh.receiveShadow=true; mesh.castShadow=false; return { mesh, points: pts };
+  }
+
+  function spawnNextPathSegment(){
+    if (movePathState.strip){ scene.remove(movePathState.strip); movePathState.strip.geometry.dispose(); }
+    if (movePathState.startLandmark) { scene.remove(movePathState.startLandmark); }
+    if (movePathState.endLandmark) { scene.remove(movePathState.endLandmark); }
+
+    const { curve, end } = randomCurveFrom(movePathState.start.clone(), movePathState.radius, movePathState.curves);
+    movePathState.curves.push(curve);
+    const strip = makeStripFromCurve(curve, movePathState.halfWidth);
+    scene.add(strip.mesh); stageObjects.push(strip.mesh); movePathState.strip = strip.mesh; movePathState.points = strip.points.map(p=>p.clone()); movePathState.end = end.clone();
+
+    movePathState.startLandmark = createLandmark(true); movePathState.startLandmark.position.copy(movePathState.start);
+    scene.add(movePathState.startLandmark); stageObjects.push(movePathState.startLandmark);
+
+    movePathState.endLandmark = createLandmark(false); movePathState.endLandmark.position.copy(movePathState.end);
+    scene.add(movePathState.endLandmark); stageObjects.push(movePathState.endLandmark);
+  }
+
+  function nearestDistanceToPolyline2D(pt, poly){
+    let min = Infinity;
+    for(let i=0;i<poly.length-1;i++){
+      const a=poly[i], b=poly[i+1];
+      const ax=a.x, az=a.z, bx=b.x, bz=b.z, px=pt.x, pz=pt.z;
+      const abx=bx-ax, abz=bz-az; const apx=px-ax, apz=pz-az;
+      const ab2=abx*abx+abz*abz;
+      let t = ab2>0 ? (apx*abx+apz*abz)/ab2 : 0; t = Math.max(0, Math.min(1, t));
+      const qx=ax+abx*t, qz=az+abz*t; const dx=px-qx, dz=pz-qz;
+      const d2 = dx*dx+dz*dz; if (d2<min) min=d2;
+    }
+    return Math.sqrt(min);
+  }
+
+  /*********************
+   * Stage 3 — Hex Column Buttons with zones
+   *********************/
+  function setupStage3_HexButtons(){
+    const R=18;
+    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666); createGemLamps(R);
+
+    const h = 3.6;
+    const hex = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, h, 6), new THREE.MeshStandardMaterial({ color:0x888, metalness:.0, roughness:.7 }));
+    hex.position.y = h/2; scene.add(hex); stageObjects.push(hex); collidables.push(hex);
+
+    const buttons=[], zones=[], hit=new Array(6).fill(false);
+    const btnGeo = new THREE.CylinderGeometry(.28,.28,.22,24);
+    for(let i=0;i<6;i++){
+      const ang = i*Math.PI/3; const nx = Math.cos(ang), nz = Math.sin(ang);
+      const btn = new THREE.Mesh(btnGeo, new THREE.MeshStandardMaterial({ color:0xff3333, emissive:0x660000 }));
+      const r = 2.0 + 0.35; btn.rotation.x = Math.PI/2; btn.position.set(nx*r, 1.2, nz*r); btn.lookAt(0,1.2,0);
+      btn.userData.isHexButton = true; btn.userData.faceIndex = i;
+      scene.add(btn); stageObjects.push(btn); collidables.push(btn); buttons.push(btn);
+
+      const zoneW = 2.2, zoneD = 1.6;
+      const zx = Math.cos(ang) * (2.0 + 5.0), zz = Math.sin(ang) * (2.0 + 5.0);
+      const zm = new THREE.Mesh(new THREE.BoxGeometry(zoneW, .2, zoneD),
+        new THREE.MeshStandardMaterial({ color:0x0077ff, emissive:0x002244, emissiveIntensity:0.35, metalness:0.2, roughness:0.45, transparent:false, opacity:1 }));
+      zm.position.set(zx, .1, zz); zm.rotation.y = -(ang);
+      scene.add(zm); stageObjects.push(zm); zones.push(zm);
+    }
+    hexState = { buttons, zones, hit, hitCount:0 };
+  }
+  function isPlayerInsideZone(idx){
+    if (!hexState) return false;
+    const zm = hexState.zones[idx]; const box = new THREE.Box3().setFromObject(zm); const p = camera.position;
+    const inside = p.x>=box.min.x && p.x<=box.max.x && p.z>=box.min.z && p.z<=box.max.z;
+    const originalColor = new THREE.Color(0x00ffff), activeColor = new THREE.Color(0xffd700);
+    if (inside) { zm.material.color.set(activeColor); zm.material.emissive.set(activeColor); zm.material.opacity = 0.5; }
+    else { zm.material.color.set(originalColor); zm.material.emissive.set(new THREE.Color(0x004444)); zm.material.opacity = 0.2; }
+    return inside;
+  }
+  function completeStage(stageNum){
+    if (stageCompleted) return; stageCompleted = true; pauseTimer(); if (document.pointerLockElement) document.exitPointerLock();
+    const tElapsed = clock.getElapsedTime() - levelStartTime;
+    if (stageNum===2) { if (best.time2==null || tElapsed<best.time2) best.time2=tElapsed; }
+    else if (stageNum===3) { if (best.time3==null || tElapsed<best.time3) best.time3=tElapsed; }
+    saveBest();
+    const nextStage = stageNum + 1;
+    if (nextStage <= 4) {
+        showToast((lang==='zh'?`关卡 ${stageNum} 完成！准备进入下一关...`:`Stage ${stageNum} complete! Loading next...`), 2000);
+        isTransitioning = true; setTimeout(() => { loadStage(nextStage); isTransitioning = false; }, 2000);
+    } else {
+        showOverlay((lang==='zh'?'通关成功！':'All Completed'), `${(lang==='zh'?'最终用时':'Final time')}: <b>${tElapsed.toFixed(2)}s</b>`, 'end');
+    }
+  }
+
+  /*********************
+   * Stage 4 — THREE Belts (opaque, half speeds, stop at 20 hits)
+  *********************/
+  function setupStage4_MovingBelts(){
+    const R=18;
+    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666); createGemLamps(R);
+
+    const speeds = [1.25, 2.5, 3.75];
+    const zPositions = [-2.5, -5.0, -7.5];
+    const beltW = 8.0, beltD = 1.8, beltH = 0.06;
+
+    const GOLD = 0xFFD700;
+    const beltColors = [0x1E88E5, 0x43A047, 0xE53935];
+    const belts = [];
+    for (let i=0;i<3;i++){
+      const beltMat = new THREE.MeshStandardMaterial({ color:beltColors[i], metalness:.15, roughness:.6, emissive:beltColors[i], emissiveIntensity:0.22, transparent:false, opacity:1 });
+      const belt = new THREE.Mesh(new THREE.BoxGeometry(beltW, beltH, beltD), beltMat); belt.material.polygonOffset=true; belt.material.polygonOffsetFactor=-2; belt.material.polygonOffsetUnits=-2;
+      belt.position.set(0, -beltH/2 + 0.003, zPositions[i]); belt.castShadow = false; belt.receiveShadow = true;
+
+      const railMat = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:0xffffff, emissiveIntensity:1.8, transparent:true, opacity:0.98 });
+      const railGeom = new THREE.BoxGeometry(beltW+0.2, 0.02, 0.06);
+      const railFront = new THREE.Mesh(railGeom, railMat); railFront.position.set(0, 0.01, beltD/2 + 0.02);
+      const railBack = new THREE.Mesh(railGeom, railMat); railBack.position.set(0, 0.01, -beltD/2 - 0.02);
+      belt.add(railFront); belt.add(railBack);
+
+      scene.add(belt); stageObjects.push(belt); collidables.push(belt);
+
+      const state = { mesh:belt, speed:speeds[i], dir: (Math.random()<.5?1:-1), amplitude: (R-4.5), lastMove:0, hits:0, stopped:false, baseColor: beltColors[i], railMat };
+      belts.push(state);
+    }
+
+    const tgt = makeBullseyeTarget(); tgt.position.set(0, 1.7, -14); tgt.lookAt(0,1.7,0);
+    tgt.userData.isScoreTarget = true; scene.add(tgt); stageObjects.push(tgt); collidables.push(tgt);
+
+    beltState = { belts, score:0, onBelt:false, activeBelt:null, completedCount:0 };
+    scoreEl.textContent = '0';
+
+    const anim = (time,dt)=>{
+      for (const s of belts){
+        if (s.stopped) { s.lastMove = 0; continue; }
+        // removed: no random reversal; reverse only at ends
+        const oldX = s.mesh.position.x;
+        let x = s.mesh.position.x + s.dir * s.speed * dt;
+        if (x > s.amplitude) { x = s.amplitude; s.dir = -1; }
+        if (x < -s.amplitude) { x = -s.amplitude; s.dir = 1; }
+        s.mesh.position.x = x; s.lastMove = x - oldX;
+      }
+      beltState.onBelt = false; beltState.activeBelt = null;
+      for (const s of belts){
+        const box = new THREE.Box3().setFromObject(s.mesh);
+        const p = camera.position;
+        const on = (p.x>=box.min.x && p.x<=box.max.x && p.z>=box.min.z && p.z<=box.max.z && Math.abs((p.y-(isCrouching?crouchHeight:playerHeight)) - box.max.y) < 0.6 );
+        if (on){
+          beltState.onBelt = true; beltState.activeBelt = s;
+          // Turn the belt GOLD while standing on it
+          s.mesh.material.color.setHex(GOLD);
+          s.mesh.material.emissive.setHex(GOLD);
+          s.mesh.material.emissiveIntensity = s.stopped ? 0.85 : 0.55;
+          if (s.railMat) { s.railMat.color.setHex(GOLD); s.railMat.emissive.setHex(GOLD); s.railMat.emissiveIntensity = 2.0; }
+        } else {
+          // Revert to original belt color when not on it
+          s.mesh.material.color.setHex(s.baseColor);
+          s.mesh.material.emissive.setHex(s.baseColor);
+          s.mesh.material.emissiveIntensity = s.stopped ? 0.85 : 0.22;
+          if (s.railMat) { s.railMat.color.setHex(0xffffff); s.railMat.emissive.setHex(0xffffff); s.railMat.emissiveIntensity = s.stopped ? 2.3 : 1.8; }
+        }
+      }
+    };
+    anim.__stageBound = true; animated.push(anim);
+  }
+
+  function makeBullseyeTarget(){
+    const g = new THREE.Group();
+    const rings = [
+      { c:0xffffff, r:1.4 }, { c:0xffffff, r:1.2 },
+      { c:0x000000, r:1.0 }, { c:0x000000, r:.8 },
+      { c:0xff4500, r:.6 }, { c:0xff4500, r:.45 },
+      { c:0xffd700, r:.28 }, { c:0xffd700, r:.14 }
+    ];
+    for(let i=0;i<rings.length;i++){
+      const outer = rings[i].r, inner = i===rings.length-1 ? 0 : rings[i+1].r;
+      const geo = (i===rings.length-1)? new THREE.CircleGeometry(outer, 48) : new THREE.RingGeometry(inner, outer, 48);
+      const mat = new THREE.MeshStandardMaterial({ color:rings[i].c, side:THREE.DoubleSide });
+      const m = new THREE.Mesh(geo, mat); m.position.z = i*0.0005; g.add(m);
+    }
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(.05,.05,1.2,8), new THREE.MeshStandardMaterial({ color:0x8b4513 }));
+    stem.position.set(0,-.6,-.1); g.add(stem);
+    return g;
+  }
+  
+  function createHeartFireworks(position) {
+    const heartShape = new THREE.Shape();
+    heartShape.moveTo( 0.25, 0.25 );
+    heartShape.bezierCurveTo( 0.25, 0.25, 0.2, 0, 0, 0 );
+    heartShape.bezierCurveTo( - 0.3, 0, - 0.3, 0.35, - 0.3, 0.35 );
+    heartShape.bezierCurveTo( - 0.3, 0.55, - 0.1, 0.77, 0.25, 0.95 );
+    heartShape.bezierCurveTo( 0.6, 0.77, 0.8, 0.55, 0.8, 0.35 );
+    heartShape.bezierCurveTo( 0.8, 0.35, 0.8, 0, 0.5, 0 );
+    heartShape.bezierCurveTo( 0.35, 0, 0.25, 0.25, 0.25, 0.25 );
+    const geometry = new THREE.ShapeGeometry(heartShape);
+    
+    for (let i = 0; i < 20; i++) {
+        const material = new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(Math.random(), 0.8, 0.6), transparent: true, opacity: 0.9 });
+        const particle = new THREE.Mesh(geometry, material);
+        particle.position.copy(position); particle.scale.setScalar(0.1 + Math.random() * 0.2);
+        particle.rotation.z = Math.random() * Math.PI * 2;
+        const velocity = new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
+        particle.userData.velocity = velocity; particle.userData.life = 0.8 + Math.random() * 0.5;
+
+        scene.add(particle);
+        const animIndex = animated.length;
+        const fn = (time, dt) => {
+            particle.userData.life -= dt;
+            if (particle.userData.life <= 0) { scene.remove(particle); particle.geometry.dispose(); particle.material.dispose(); animated[animIndex] = ()=>{}; return; }
+            particle.position.addScaledVector(particle.userData.velocity, dt);
+            particle.userData.velocity.y -= 5 * dt; particle.material.opacity = particle.userData.life / 1.0;
+        };
+        fn.__stageBound = true; animated.push(fn);
+    }
+  }
+
+  /*********************
+   * Animate & Stage logic
+   *********************/
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(.05, clock.getDelta());
+    const tNow = clock.getElapsedTime();
+
+    updateBullets(dt);
+    animated.forEach(fn=>fn(tNow,dt));
+
+    if (document.pointerLockElement===document.body) {
+      updatePlayer(dt);
+
+      // STAGE 1
+      if (currentStage === 1 && rhythmState) {
+        if (!rhythmState.active && tNow >= rhythmState.nextPromptAt) {
+          spawnPrompt(tNow);
+        } else if (rhythmState.active) {
+          if (tNow >= rhythmState.activeUntil) {
+            rhythmState.active = false; promptEl.style.display = 'none'; rhythmState.misses++; showToast(t('miss'), 500);
+            rhythmState.nextPromptAt = tNow + (rhythmState.minGap + Math.random() * (rhythmState.maxGap - rhythmState.minGap));
+          }
+        }
+      }
+
+      // STAGE 2
+      if (currentStage===2 && movePathState && movePathState.points){
+        const p2 = new THREE.Vector3(camera.position.x, 0, camera.position.z);
+        const d = nearestDistanceToPolyline2D(p2, movePathState.points);
+        if (d > movePathState.halfWidth + 0.35) {
+          camera.position.set(movePathState.lastCheckpoint.x, playerHeight, movePathState.lastCheckpoint.z);
+          playerVelocity.set(0,0,0);
+          showToast(lang==='zh'?'走出黄色路线，已重置到上一个起点。':'Out of path, reset to last start.', 1100);
+        } else {
+          if (!movePathState.segmentCompleted && p2.distanceTo(new THREE.Vector3(movePathState.end.x, 0, movePathState.end.z)) < 1.2){
+            movePathState.segmentCompleted = true;
+            movePathState.index++;
+            movePathState.start = movePathState.end.clone();
+            movePathState.lastCheckpoint = movePathState.start.clone();
+            counterEl.innerHTML = ft('segments_progress', {n: movePathState.index, total: movePathState.total});
+            showToast((lang==='zh' ? '段完成：' : 'Segment ') + movePathState.index, 800);
+            if (movePathState.index >= movePathState.total){ completeStage(2); }
+            else { setTimeout(() => { spawnNextPathSegment(); movePathState.segmentCompleted = false; }, 250); }
+          }
+        }
+      }
+      
+      // STAGE 3
+      if (currentStage === 3 && hexState) {
+      hexState.zones.forEach((zone, i) => isPlayerInsideZone(i));
+      // Crosshair highlight for shooting zones
+      try {
+        raycaster.setFromCamera(centerScreen, camera);
+        const htz = raycaster.intersectObjects(hexState.zones, true);
+        const aimed = htz.length>0 ? htz[0].object : null;
+        hexState.zones.forEach(z=>{
+          const m = z.material; if (!m) return;
+          if (aimed && (z===aimed || z===aimed.parent)) {
+            m.emissive = new THREE.Color(0xff0000);
+            m.emissiveIntensity = 1.0;
+            m.transparent = false; m.opacity = 1;
+          } else {
+            m.emissive = new THREE.Color(0x002244);
+            m.emissiveIntensity = 0.35;
+            m.transparent = false; m.opacity = 1;
+          }
+        });
+      } catch(e){}
+    }
+    }
+
+    if (isTimerRunning){
+      const elapsed = tNow - levelStartTime;
+      if (currentStage===1){
+        const remain = Math.max(0, 60 - elapsed); timerEl.textContent = remain.toFixed(2)+'s';
+        if (!stageCompleted && remain<=0.0001){ endStage1(); }
+      } else if (currentStage===4){
+        const remain = Math.max(0, 60 - elapsed); timerEl.textContent = remain.toFixed(2)+'s';
+        if (!stageCompleted && remain<=0.0001){
+          stageCompleted = true; pauseTimer();
+          if (document.pointerLockElement) document.exitPointerLock();
+          if (best.score4==null || beltState.score>best.score4) best.score4 = beltState.score;
+          saveBest();
+          const body = `${ft('score_this_run',{x:beltState.score})}<br><span class="muted">${t('click_continue')}</span>`;
+          showOverlay(t('time_up'), body, 'end');
+        }
+      } else if (currentStage > 1) { timerEl.textContent = elapsed.toFixed(2)+'s'; }
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  /*********************
+   * Intro text updates per stage
+   *********************/
+  function updateIntroForStage(){
+    if (overlayMode !== 'intro') return;
+    const title = document.getElementById('instruction-title');
+    const body = document.getElementById('instruction-body');
+    if (!title || !body) return;
+    if (currentStage===1){
+      title.textContent = t('s1_title');
+      body.innerHTML = `<div>${t('s1_body')}</div><br><span class="muted">${t('controls')}</span>`;
+    } else if (currentStage===2){
+      title.textContent = t('s2_title');
+      body.innerHTML = `<div>${t('s2_body')}</div><br><span class="muted">${t('controls')}</span>`;
+    } else if (currentStage===3){
+      title.textContent = t('s3_title');
+      body.innerHTML = `<div>${t('s3_body')}</div><br><span class="muted">${t('controls')}</span>`;
+    } else if (currentStage===4){
+      title.textContent = t('s4_title');
+      body.innerHTML = `<div>${t('s4_body')}</div><br><span class="muted">${t('controls')}</span>`;
+    } else {
+      title.textContent = t('welcome_title');
+    }
+  }
+  const obs = new MutationObserver(()=>{ if (blocker.style.display!=='none' && overlayMode==='intro') updateIntroForStage(); });
+  obs.observe(blocker, { attributes:true, attributeFilter:['style'] });
+
+  </script>
+</body>
+</html>
