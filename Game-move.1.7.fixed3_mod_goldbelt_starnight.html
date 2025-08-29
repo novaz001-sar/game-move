@@ -120,6 +120,23 @@
     .tag { display:inline-block; padding:2px 8px; background:#333; border:1px solid #777; border-radius:999px; font-size:12px; margin-left:8px; }
     .btn.small { width:auto; padding:8px 12px; font-weight:700; }
     .btn.toggled { background:#888; pointer-events:auto; }
+  
+/* === Level Editor Overlay === */
+#editor { position:fixed; inset:0; display:none; z-index:14; align-items:center; justify-content:center; background:rgba(0,0,0,.72); }
+#editor .panel { background:rgba(20,20,20,.94); border:2px solid #888; border-radius:16px; padding:18px; width:min(96vw,880px); max-height:90vh; overflow:auto; }
+.grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px 16px; align-items:center; }
+.grid .full { grid-column: 1 / -1; }
+.field { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.field label { min-width: 180px; font-weight:700; }
+.field input[type="number"] { width:120px; padding:6px 8px; border-radius:8px; border:1px solid #777; background:#111; color:#fff; }
+.chips { display:flex; gap:8px; flex-wrap:wrap; }
+.chip { padding:6px 10px; border-radius:999px; border:1px solid #777; background:#222; cursor:pointer; user-select:none; }
+.chip.toggled { background:#666; }
+.hline { border-top:1px solid #555; margin:12px 0; }
+.subtle { color:#ddd; font-size:12px; }
+.btn.inline { width:auto; padding:8px 12px; font-weight:700; }
+#miniMap { width:220px; height:220px; border:1px solid #777; border-radius:8px; background:#0b0b0d; }
+
   </style>
 </head>
 <body>
@@ -188,7 +205,15 @@
 
       <hr style="border-color:#555; width:100%;">
 
+      
+      <hr style="border-color:#555; width:100%;">
+      <div class="muted" style="margin-bottom:6px;">关卡编辑器 / Level Editor</div>
+      <div class="row">
+        <button class="btn" id="editorOpenBtn">打开编辑器 / Open Editor</button>
+        <button class="btn" id="editorResetBtn">恢复默认 / Reset Defaults</button>
+      </div>
       <button class="btn red" id="quitBtn">返回开场 / Back to Intro</button>
+
     </div>
   </div>
 
@@ -359,7 +384,8 @@
   let toyGun, bullets = [], shootCooldown = 0;
 
   // Stars
-  let starField = null, starField2 = null, starField3 = null;
+  let starField = null, starField2 = null, starField3 = null; let moonGroup = null;
+  let moonSprite = null, moonGlow = null;
 
   // State for stages
   let rhythmState = null;
@@ -431,16 +457,32 @@
         starField3.material.opacity = Math.min(1.0, nightAmt * tw3);
         starField3.visible = starField3.material.opacity > 0.02;
       }
+    
+      if (moonGroup){
+        const ph = (time % cycle.len) / cycle.len;
+        const dayMix = 0.5 - 0.5 * Math.cos(ph * Math.PI * 2);
+        const nightAmt = Math.pow(1 - dayMix, 1.10);
+        const ang = (ph + 0.75) * Math.PI * 2;
+        const r = 320;
+        const y = 40 + Math.sin(ang) * 60;
+        moonGroup.position.set(Math.cos(ang)*r, y, Math.sin(ang)*r);
+        const ms = window.__moonSpriteRef;
+        if (ms){ ms.material.opacity = 0.18 + 0.92 * nightAmt; ms.visible = ms.material.opacity > 0.02;
+                 try{ if (ms.userData && ms.userData._moonDraw){ ms.userData._moonDraw.phase = Math.max(0.05, Math.min(0.95, nightAmt*0.95 + 0.05)); } }catch(e){} }
+        if (moonGlow){ moonGlow.position.copy(moonGroup.position); moonGlow.material.opacity = 0.03 + 0.40 * nightAmt; }
+      }
     };
+
     animated.push(dayAnim);
 
-    // Stars once
+    // Stars (create at init)
     // Layer 1: bright white
     starField = createStars(2000, 420, 1.2, 0xffffff, false); scene.add(starField);
     // Layer 2: cooler small white/blue
     starField2 = createStars(1600, 430, 0.9, 0xDDEBFF, false); scene.add(starField2);
     // Layer 3: lavender additive glow
     starField3 = createStars(2400, 440, 1.7, 0xDCC7FF, true); scene.add(starField3);
+    createMoonRealistic();
     loadBest();
 
     createToyGun(); camera.add(toyGun); scene.add(camera);
@@ -478,7 +520,7 @@
       if (enBtn) enBtn.classList.toggle('toggled', lang==='en');
       applyLanguage();
       if (currentStage===1) counterEl.innerHTML = t('rhythm_hint');
-      if (currentStage===2) counterEl.innerHTML = ft('segments_progress', {n: movePathState?movePathState.index:0, total: movePathState?movePathState.total:5});
+      if (currentStage===2) counterEl.innerHTML = ft('segments_progress', {n: movePathState?movePathState.index:0, total: movePathState?movePathState.total: ((window.CFG && CFG.stage2 && CFG.stage2.segments) ? CFG.stage2.segments : 5)});
       if (currentStage===4) counterEl.innerHTML = t('on_belt_hint');
       if (overlayMode === 'intro') updateIntroForStage();
     };
@@ -705,6 +747,73 @@
     }
   }
     
+  
+  function createClassicLamps(radius, count=16){
+    const lamps = [];
+    const R = radius + 0.9;
+    const poleH = 5.8;
+    for(let i=0;i<count;i++){
+      const ang = (i / count) * Math.PI * 2;
+      const x = Math.cos(ang) * R;
+      const z = Math.sin(ang) * R;
+      const g = new THREE.Group();
+
+      // Stone plinth
+      const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.35, 24), new THREE.MeshStandardMaterial({ color:0x3b3b3b, roughness:0.9, metalness:0.05 }));
+      plinth.position.y = 0.175; g.add(plinth);
+
+      // Decorative ring
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.03, 12, 48), new THREE.MeshStandardMaterial({ color:0x555555, roughness:0.55, metalness:0.35 }));
+      ring.position.set(0, 0.35, 0); ring.rotation.x = Math.PI/2; g.add(ring);
+
+      // Fluted pole
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, poleH, 24), new THREE.MeshStandardMaterial({ color:0x8b8c8e, roughness:0.35, metalness:0.75 }));
+      pole.position.y = poleH/2 + 0.35; g.add(pole);
+
+      // Collar
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.18, 24), new THREE.MeshStandardMaterial({ color:0x727273, roughness:0.35, metalness:0.8 }));
+      collar.position.y = 0.35 + poleH; g.add(collar);
+
+      // Lantern body (hex)
+      const lanternFrame = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.9, 6), new THREE.MeshStandardMaterial({ color:0x2c2c2c, roughness:0.6, metalness:0.2 }));
+      lanternFrame.position.y = 0.35 + poleH + 0.55; g.add(lanternFrame);
+
+      // Glass inner
+      const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.30, 0.8, 6), new THREE.MeshStandardMaterial({ color:0xffe2a0, emissive:0xffe2a0, emissiveIntensity:1.6, transparent:true, opacity:0.65 }));
+      glass.position.y = 0.35 + poleH + 0.55; g.add(glass);
+
+      // Cap and finial
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.25, 12), new THREE.MeshStandardMaterial({ color:0x444444, roughness:0.55, metalness:0.2 }));
+      cap.position.y = 0.35 + poleH + 1.1; g.add(cap);
+      const finial = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), new THREE.MeshStandardMaterial({ color:0xb3b3b3, roughness:0.35, metalness:0.8 }));
+      finial.position.y = 0.35 + poleH + 1.28; g.add(finial);
+
+      // Warm point light
+      const light = new THREE.PointLight(0xffe2a0, 1.6, 20, 2.0);
+      light.position.set(0, 0.35 + poleH + 0.55, 0);
+      light.castShadow = false;
+      g.add(light);
+
+      // Placement
+      g.position.set(x, 0, z);
+      g.lookAt(0,0,0);
+
+      // Subtle flicker
+      const base = 1.2 + Math.random()*0.5;
+      const idx = i;
+      const anim = (time, dt)=>{
+        const tw = 0.92 + 0.08*Math.sin(time*2.4 + idx*0.7);
+        light.intensity = base * tw;
+        glass.material.emissiveIntensity = 1.2 * tw;
+      };
+      anim.__stageBound = true; animated.push(anim);
+
+      scene.add(g); stageObjects.push(g);
+      lamps.push(g);
+    }
+    return lamps;
+  }
+
   function createGemLamps(radius) {
     const lamps = [
         { dist: 0.85, count: 8, offset: 0 },
@@ -753,6 +862,91 @@
             lampIndex++;
         }
     });
+  }
+
+  
+  function createClassicStreetLamps(radius, count=16){
+    const lamps = [];
+    const R = radius + 0.9;
+    const poleH = 5.8;
+    for(let i=0;i<count;i++){
+      const ang = (i / count) * Math.PI * 2;
+      const x = Math.cos(ang) * R;
+      const z = Math.sin(ang) * R;
+      const g = new THREE.Group();
+
+      const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.35, 24), new THREE.MeshStandardMaterial({ color:0x3b3b3b, roughness:0.9, metalness:0.05 }));
+      plinth.position.y = 0.175; g.add(plinth);
+
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.03, 12, 48), new THREE.MeshStandardMaterial({ color:0x555555, roughness:0.55, metalness:0.35 }));
+      ring.position.set(0, 0.35, 0); ring.rotation.x = Math.PI/2; g.add(ring);
+
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, poleH, 24), new THREE.MeshStandardMaterial({ color:0x8b8c8e, roughness:0.35, metalness:0.75 }));
+      pole.position.y = poleH/2 + 0.35; g.add(pole);
+
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.18, 24), new THREE.MeshStandardMaterial({ color:0x727273, roughness:0.35, metalness:0.8 }));
+      collar.position.y = 0.35 + poleH; g.add(collar);
+
+      const lanternFrame = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.9, 6), new THREE.MeshStandardMaterial({ color:0x2c2c2c, roughness:0.6, metalness:0.2 }));
+      lanternFrame.position.y = 0.35 + poleH + 0.55; g.add(lanternFrame);
+
+      const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.30, 0.8, 6), new THREE.MeshStandardMaterial({ color:0xffe2a0, emissive:0xffe2a0, emissiveIntensity:1.6, transparent:true, opacity:0.65 }));
+      glass.position.y = 0.35 + poleH + 0.55; g.add(glass);
+
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.25, 12), new THREE.MeshStandardMaterial({ color:0x444444, roughness:0.55, metalness:0.2 }));
+      cap.position.y = 0.35 + poleH + 1.1; g.add(cap);
+      const finial = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), new THREE.MeshStandardMaterial({ color:0xb3b3b3, roughness:0.35, metalness:0.8 }));
+      finial.position.y = 0.35 + poleH + 1.28; g.add(finial);
+
+      const light = new THREE.PointLight(0xffe2a0, 1.6, 20, 2.0);
+      light.position.set(0, 0.35 + poleH + 0.55, 0);
+      g.add(light);
+
+      g.position.set(x, 0, z); g.lookAt(0,0,0);
+
+      const base = 1.2 + Math.random()*0.5; const idx = i;
+      const anim = (time, dt)=>{ const tw = 0.92 + 0.08*Math.sin(time*2.4 + idx*0.7); light.intensity = base * tw; glass.material.emissiveIntensity = 1.2 * tw; };
+      anim.__stageBound = true; animated.push(anim);
+
+      scene.add(g); stageObjects.push(g); lamps.push(g);
+    }
+    return lamps;
+  }
+
+  
+  function createMoonRealistic(){
+    if (!moonGroup){
+      moonGroup = new THREE.Group(); moonGroup.name = 'MoonGroup'; scene.add(moonGroup);
+    } else {
+      while(moonGroup.children.length){ const ch=moonGroup.children.pop(); if(ch.geometry) ch.geometry.dispose?.(); if(ch.material){ if(Array.isArray(ch.material)) ch.material.forEach(m=>m.dispose?.()); else ch.material.dispose?.(); } }
+    }
+    const size = 512;
+    const cvs = document.createElement('canvas'); cvs.width=cvs.height=size; const ctx=cvs.getContext('2d');
+    const cx=size/2, cy=size/2, R=size*0.46;
+    function drawDisk(phase01){
+      ctx.clearRect(0,0,size,size);
+      const base = ctx.createRadialGradient(cx-R*0.25, cy-R*0.25, R*0.05, cx, cy, R*1.05);
+      base.addColorStop(0,'#f7f4e8'); base.addColorStop(1,'#cfcbbf'); ctx.fillStyle=base; ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
+      for(let i=0;i<18;i++){ const ang=Math.random()*Math.PI*2; const rr=R*(0.08+Math.random()*0.18); const rx=cx+Math.cos(ang)*R*(Math.random()*0.65); const ry=cy+Math.sin(ang)*R*(Math.random()*0.65); const grd=ctx.createRadialGradient(rx,ry,rr*0.15,rx,ry,rr); grd.addColorStop(0,'rgba(80,80,80,0.28)'); grd.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(rx,ry,rr,0,Math.PI*2); ctx.fill(); }
+      for(let i=0;i<120;i++){ const ang=Math.random()*Math.PI*2; const rad=R*(0.008+Math.random()*0.05); const dist=R*Math.pow(Math.random(),0.7)*0.95; const x=cx+Math.cos(ang)*dist; const y=cy+Math.sin(ang)*dist; const g1=ctx.createRadialGradient(x,y,rad*0.1,x,y,rad); g1.addColorStop(0,'rgba(60,60,60,0.35)'); g1.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g1; ctx.beginPath(); ctx.arc(x,y,rad,0,Math.PI*2); ctx.fill(); const offset=(phase01-0.5)*rad*0.9; const g2=ctx.createRadialGradient(x+offset,y,rad*0.35,x+offset,y,rad*1.05); g2.addColorStop(0,'rgba(255,255,230,0.55)'); g2.addColorStop(1,'rgba(255,255,230,0.0)'); ctx.fillStyle=g2; ctx.beginPath(); ctx.arc(x,y,rad*1.15,0,Math.PI*2); ctx.fill(); }
+      const p=Math.max(0.08,Math.min(0.92,phase01)); const k=p*2-1; const grdL=ctx.createLinearGradient(cx-R,0,cx+R,0); const cut=0.5+k*0.42; grdL.addColorStop(0,'rgba(0,0,0,'+(0.85*Math.abs(k))+')'); grdL.addColorStop(cut,'rgba(0,0,0,'+(0.45*Math.abs(k))+')'); grdL.addColorStop(Math.min(1,cut+0.06),'rgba(0,0,0,0)'); grdL.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=grdL; ctx.beginPath(); ctx.arc(cx,cy,R*1.01,0,Math.PI*2); ctx.fill();
+      const hl=ctx.createLinearGradient(cx-R,0,cx+R,0); const lcut=0.5-k*0.42; hl.addColorStop(0,'rgba(255,255,230,0)'); hl.addColorStop(Math.max(0,lcut-0.02),'rgba(255,255,230,0)'); hl.addColorStop(lcut,'rgba(255,255,230,0.22)'); hl.addColorStop(Math.min(1,lcut+0.05),'rgba(255,255,230,0)'); ctx.fillStyle=hl; ctx.beginPath(); ctx.arc(cx,cy,R*1.02,0,Math.PI*2); ctx.fill();
+    }
+    let currentPhase = 0.8; drawDisk(currentPhase);
+    const moonTex = new THREE.CanvasTexture(cvs); moonTex.anisotropy=8; moonTex.needsUpdate=true;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTex, transparent:true, depthWrite:false, depthTest:false, opacity:0.0, color:0xffffff }));
+    sprite.scale.set(36,36,1); moonGroup.add(sprite);
+
+    const gsize=512, gcvs=document.createElement('canvas'); gcvs.width=gcvs.height=gsize; const gctx=gcvs.getContext('2d');
+    const ggrad=gctx.createRadialGradient(gsize/2,gsize/2,gsize*0.12,gsize/2,gsize/2,gsize*0.5);
+    ggrad.addColorStop(0,'rgba(255,255,210,0.35)'); ggrad.addColorStop(1,'rgba(255,255,210,0)'); gctx.fillStyle=ggrad; gctx.beginPath(); gctx.arc(gsize/2,gsize/2,gsize*0.5,0,Math.PI*2); gctx.fill();
+    const glowTex = new THREE.CanvasTexture(gcvs); glowTex.anisotropy=4; glowTex.needsUpdate=true;
+    moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent:true, depthWrite:false, depthTest:false, opacity:0.0, blending:THREE.AdditiveBlending }));
+    moonGlow.scale.set(80,80,1); moonGroup.add(moonGlow);
+
+    moonGroup.position.set(0,80,-220); moonGroup.renderOrder = 999998;
+    sprite.userData._moonDraw = { cvs, ctx, drawDisk, tex: moonTex, get phase(){return currentPhase;}, set phase(p){ currentPhase=p; drawDisk(p); moonTex.needsUpdate=true; } };
+    window.__moonSpriteRef = sprite;
   }
 
   function createStars(count=1500, radius=420, size=1.2, color=0xffffff, additive=false){
@@ -978,7 +1172,7 @@
     if (idx===1) {
       setupStage1_Rhythm(); timerEl.style.display='inline-block'; scorebox.style.display='block'; startTimer();
     } else if (idx===2) {
-      setupStage2_MovementPath(); timerEl.style.display='inline-block'; counterEl.innerHTML = ft('segments_progress', {n:0, total:5}); startTimer();
+      setupStage2_MovementPath(); timerEl.style.display='inline-block'; counterEl.innerHTML = ft('segments_progress', {n:0, total:((window.CFG && CFG.stage2 && CFG.stage2.segments) ? CFG.stage2.segments : 5)}); startTimer();
     } else if (idx===3) {
       setupStage3_HexButtons(); timerEl.style.display='inline-block'; counterEl.innerHTML = (lang==='zh' ? '已命中：' : 'Hit:') + ' 0 / 6'; startTimer();
     } else if (idx===4) {
@@ -994,12 +1188,9 @@
     const R = 18;
     createFloorCircle(R);
     createCircularWall(R + 0.6, 2.2, 0x666);
-    createGemLamps(R);
+    createClassicLamps(R, 16);
 
-    rhythmState = {
-      timeLimit: 60,
-      lifetimeMin: 3.0, lifetimeMax: 5.0,
-      minGap: 0.25, maxGap: 0.7,
+    rhythmState = { timeLimit: (window.CFG && CFG.stage1 && CFG.stage1.timeLimit ? CFG.stage1.timeLimit : 60), lifetimeMin: (window.CFG && CFG.stage1 && CFG.stage1.promptLifetime ? CFG.stage1.promptLifetime[0] : 3.0), lifetimeMax: (window.CFG && CFG.stage1 && CFG.stage1.promptLifetime ? CFG.stage1.promptLifetime[1] : 5.0), minGap: (window.CFG && CFG.stage1 && CFG.stage1.promptGap ? CFG.stage1.promptGap[0] : 0.25), maxGap: (window.CFG && CFG.stage1 && CFG.stage1.promptGap ? CFG.stage1.promptGap[1] : 0.7),
       score: 0, active: false, expected: null, spawnTime: 0, activeUntil: 0, nextPromptAt: 0, misses: 0
     };
     scoreEl.textContent = '0';
@@ -1007,33 +1198,42 @@
     promptEl.style.display = 'none';
   }
 
-  function keyPool() {
-    if (lang === 'zh') {
-      return [
-        { code:'KeyW', label: ()=>`W ↑ — ${t('label_up')}` },
-        { code:'KeyA', label: ()=>`A ← — ${t('label_left')}` },
-        { code:'KeyS', label: ()=>`S ↓ — ${t('label_down')}` },
-        { code:'KeyD', label: ()=>`D → — ${t('label_right')}` },
-        { code:'Space', label: ()=>`空格 — ${t('label_jump')}` },
-        { code:'Shift', label: ()=>`⇧ — ${t('label_crouch')}` }
-      ];
-    } else {
-      return [
-        { code:'KeyW', label: ()=>`W ↑ — ${t('label_up')}` },
-        { code:'KeyA', label: ()=>`A ← — ${t('label_left')}` },
-        { code:'KeyS', label: ()=>`S ↓ — ${t('label_down')}` },
-        { code:'KeyD', label: ()=>`D → — ${t('label_right')}` },
-        { code:'Space', label: ()=>`SPACE [${t('label_jump')}]` },
-        { code:'Shift', label: ()=>`SHIFT [${t('label_crouch')}]` }
-      ];
-    }
+  
+function keyPool() {
+  const allowed = (window.CFG && CFG.stage1 && CFG.stage1.keys) ? CFG.stage1.keys : null;
+  const items = [];
+  function pushIf(k, code, labelFn){ if (!allowed || allowed[k]) items.push({ code:code, label: labelFn }); }
+  pushIf('W','KeyW', ()=>`W ↑ — ${t('label_up')}`);
+  pushIf('A','KeyA', ()=>`A ← — ${t('label_left')}`);
+  pushIf('S','KeyS', ()=>`S ↓ — ${t('label_down')}`);
+  pushIf('D','KeyD', ()=>`D → — ${t('label_right')}`);
+  if (lang==='zh'){
+    pushIf('Space','Space', ()=>`空格 — ${t('label_jump')}`);
+    pushIf('Shift','Shift', ()=>`⇧ — ${t('label_crouch')}`);
+  } else {
+    pushIf('Space','Space', ()=>`SPACE [${t('label_jump')}]`);
+    pushIf('Shift','Shift', ()=>`SHIFT [${t('label_crouch')}]`);
   }
+  if (items.length===0){
+    return [
+      { code:'KeyW', label: ()=>`W ↑ — ${t('label_up')}` },
+      { code:'KeyA', label: ()=>`A ← — ${t('label_left')}` },
+      { code:'KeyS', label: ()=>`S ↓ — ${t('label_down')}` },
+      { code:'KeyD', label: ()=>`D → — ${t('label_right')}` },
+      { code:'Space', label: ()=> (lang==='zh'?`空格 — ${t('label_jump')}`:`SPACE [${t('label_jump')}]`) },
+      { code:'Shift', label: ()=> (lang==='zh'?`⇧ — ${t('label_crouch')}`:`SHIFT [${t('label_crouch')}]`) }
+    ];
+  }
+  return items;
+}
+
   function randomPrompt() { const pool = keyPool(); return pool[Math.floor(Math.random() * pool.length)]; }
   function spawnPrompt(now) {
     rhythmState.expected = randomPrompt();
     rhythmState.spawnTime = now;
     const life = rhythmState.lifetimeMin + Math.random() * (rhythmState.lifetimeMax - rhythmState.lifetimeMin);
     rhythmState.activeUntil = now + life;
+    rhythmState.currentLife = life;
     rhythmState.active = true;
     promptEl.innerHTML = `${rhythmState.expected.label()}<small>${lang==='zh'?'尽快按下对应键':'Press the matching key quickly'}</small>`;
     promptEl.style.display = 'block';
@@ -1057,12 +1257,24 @@
     const expect = rhythmState.expected.code;
     const pressed = normalizeCode(code);
     if (pressed !== expect) return;
-    const delta = Math.max(0, clock.getElapsedTime() - rhythmState.spawnTime);
-    const { pts, label } = scoreFromDelta(delta);
+    const now = clock.getElapsedTime();
+    const delta = Math.max(0, now - rhythmState.spawnTime);
+    const life = (typeof rhythmState.currentLife==='number') ? rhythmState.currentLife : (rhythmState.activeUntil - rhythmState.spawnTime);
+    let pts = 0, label = '';
+    if (delta <= life){
+      const ratio = Math.max(0, Math.min(1, delta / life));
+      pts = Math.max(10, Math.round(100 - 90 * ratio));
+      if (ratio <= 0.15) label = (lang==='zh' ? '完美' : 'Perfect');
+      else if (ratio <= 0.35) label = (lang==='zh' ? '极好' : 'Great');
+      else if (ratio <= 0.65) label = (lang==='zh' ? '良好' : 'Good');
+      else label = (lang==='zh' ? '稍慢' : 'Late');
+    } else {
+      const r = scoreFromDelta(delta); pts = r.pts; label = r.label;
+    }
     if (pts>0) { rhythmState.score += pts; scoreEl.textContent = rhythmState.score; showToast(`<b>${label}</b> +${pts}`, 700); flashPromptGold(); }
     else { rhythmState.misses++; showToast(t('miss'), 500); promptEl.style.display = 'none'; }
     rhythmState.active = false;
-    rhythmState.nextPromptAt = clock.getElapsedTime() + (rhythmState.minGap + Math.random() * (rhythmState.maxGap - rhythmState.minGap));
+    rhythmState.nextPromptAt = now + (rhythmState.minGap + Math.random() * (rhythmState.maxGap - rhythmState.minGap));
   }
   function endStage1() {
     if (stageCompleted) return;
@@ -1081,7 +1293,7 @@
     const R = 18;
     createFloorCircle(R);
     createCircularWall(R+0.6, 2.2, 0x666);
-    createGemLamps(R);
+    createClassicLamps(R, 16);
 
     movePathState = {
       radius: R, halfWidth: 1.0, total: 5, index: 0,
@@ -1207,7 +1419,7 @@
    *********************/
   function setupStage3_HexButtons(){
     const R=18;
-    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666); createGemLamps(R);
+    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666); createClassicLamps(R, 16);
 
     const h = 3.6;
     const hex = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, h, 6), new THREE.MeshStandardMaterial({ color:0x888, metalness:.0, roughness:.7 }));
@@ -1223,7 +1435,8 @@
       scene.add(btn); stageObjects.push(btn); collidables.push(btn); buttons.push(btn);
 
       const zoneW = 2.2, zoneD = 1.6;
-      const zx = Math.cos(ang) * (2.0 + 5.0), zz = Math.sin(ang) * (2.0 + 5.0);
+      const btnR = 2.0 + 0.35; const zoneR = btnR + ((window.CFG && CFG.stage3 && typeof CFG.stage3.zoneDistance==='number') ? CFG.stage3.zoneDistance : 4.65);
+      const zx = Math.cos(ang) * zoneR, zz = Math.sin(ang) * zoneR;
       const zm = new THREE.Mesh(new THREE.BoxGeometry(zoneW, .2, zoneD),
         new THREE.MeshStandardMaterial({ color:0x0077ff, emissive:0x002244, emissiveIntensity:0.35, metalness:0.2, roughness:0.45, transparent:false, opacity:1 }));
       zm.position.set(zx, .1, zz); zm.rotation.y = -(ang);
@@ -1260,10 +1473,10 @@
   *********************/
   function setupStage4_MovingBelts(){
     const R=18;
-    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666); createGemLamps(R);
+    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666); createClassicLamps(R, 16);
 
-    const speeds = [1.25, 2.5, 3.75];
-    const zPositions = [-2.5, -5.0, -7.5];
+    const speeds = ((window.CFG && CFG.stage4 && CFG.stage4.speeds) ? CFG.stage4.speeds : [1.25,2.5,3.75]);
+    const targetZ = -14; const zPositions = ((window.CFG && CFG.stage4 && CFG.stage4.distances) ? CFG.stage4.distances : [11.5,9.0,6.5]).map(d=>targetZ + d);
     const beltW = 8.0, beltD = 1.8, beltH = 0.06;
 
     const GOLD = 0xFFD700;
@@ -1286,7 +1499,7 @@
       belts.push(state);
     }
 
-    const tgt = makeBullseyeTarget(); tgt.position.set(0, 1.7, -14); tgt.lookAt(0,1.7,0);
+    const tgt = makeBullseyeTarget(); tgt.position.set(0, 1.7, targetZ); tgt.lookAt(0,1.7,0);
     tgt.userData.isScoreTarget = true; scene.add(tgt); stageObjects.push(tgt); collidables.push(tgt);
 
     beltState = { belts, score:0, onBelt:false, activeBelt:null, completedCount:0 };
@@ -1451,10 +1664,10 @@
     if (isTimerRunning){
       const elapsed = tNow - levelStartTime;
       if (currentStage===1){
-        const remain = Math.max(0, 60 - elapsed); timerEl.textContent = remain.toFixed(2)+'s';
+        const remain = Math.max(0, ((window.CFG && CFG.stage1 && CFG.stage1.timeLimit) ? CFG.stage1.timeLimit : 60) - elapsed); timerEl.textContent = remain.toFixed(2)+'s';
         if (!stageCompleted && remain<=0.0001){ endStage1(); }
       } else if (currentStage===4){
-        const remain = Math.max(0, 60 - elapsed); timerEl.textContent = remain.toFixed(2)+'s';
+        const remain = Math.max(0, ((window.CFG && CFG.stage4 && CFG.stage4.timeLimit) ? CFG.stage4.timeLimit : 60) - elapsed); timerEl.textContent = remain.toFixed(2)+'s';
         if (!stageCompleted && remain<=0.0001){
           stageCompleted = true; pauseTimer();
           if (document.pointerLockElement) document.exitPointerLock();
@@ -1463,7 +1676,7 @@
           const body = `${ft('score_this_run',{x:beltState.score})}<br><span class="muted">${t('click_continue')}</span>`;
           showOverlay(t('time_up'), body, 'end');
         }
-      } else if (currentStage > 1) { timerEl.textContent = elapsed.toFixed(2)+'s'; }
+      } else if (currentStage > 1) { const lim=(currentStage===2?(window.CFG&&CFG.stage2&&CFG.stage2.timeLimit||0):(currentStage===3?(window.CFG&&CFG.stage3&&CFG.stage3.timeLimit||0):0)); const r=lim?Math.max(0, lim - elapsed):elapsed; timerEl.textContent = r.toFixed(2)+'s'; if(lim && !stageCompleted && r<=0.0001){ stageCompleted=true; pauseTimer(); if(document.pointerLockElement) document.exitPointerLock(); const body=(currentStage===2)?`${(lang==='zh'?'已完成段数':'Segments finished')}: <b>${movePathState?movePathState.index:0} / ${movePathState?movePathState.total:0}</b><br><span class='muted'>${t('click_continue')}</span>`:`${(lang==='zh'?'已命中':'Hit')}: <b>${hexState?hexState.hitCount:0} / 6</b><br><span class='muted'>${t('click_continue')}</span>`; showOverlay(t('time_up'), body, 'end'); } }
     }
 
     renderer.render(scene, camera);
@@ -1497,5 +1710,224 @@
   obs.observe(blocker, { attributes:true, attributeFilter:['style'] });
 
   </script>
+
+  <!-- Editor Overlay -->
+  <div id="editor" class="overlay">
+    <div class="panel">
+      <h2 style="margin:0 0 10px;">关卡参数编辑器 / Level Parameter Editor</h2>
+      <div class="subtle">修改后点击“应用并保存”生效。配置保存在浏览器本地存储。</div>
+
+      <div class="hline"></div>
+      <h3 style="margin:6px 0;">第一关：按键反应 / Stage 1: Rhythm Keys</h3>
+      <div class="grid">
+        <div class="field">
+          <label>倒计时（秒）/ Time Limit (s)</label>
+          <input type="number" id="s1_time" min="0" step="1" />
+          <span class="subtle">0 表示不限制 / 0 = unlimited</span>
+        </div>
+        <div class="field">
+          <label>指令出现时长区间 / Prompt Lifetime (s)</label>
+          <input type="number" id="s1_life_min" min="0.1" step="0.1" />
+          <span>~</span>
+          <input type="number" id="s1_life_max" min="0.1" step="0.1" />
+        </div>
+        <div class="field">
+          <label>指令间隔区间 / Prompt Gap (s)</label>
+          <input type="number" id="s1_gap_min" min="0.0" step="0.05" />
+          <span>~</span>
+          <input type="number" id="s1_gap_max" min="0.0" step="0.05" />
+        </div>
+        <div class="field full">
+          <label>可用按键 / Allowed Keys</label>
+          <div class="chips" id="s1_keys">
+            <div class="chip" data-k="W">W</div>
+            <div class="chip" data-k="A">A</div>
+            <div class="chip" data-k="S">S</div>
+            <div class="chip" data-k="D">D</div>
+            <div class="chip" data-k="Space">Space/空格</div>
+            <div class="chip" data-k="Shift">Shift/⇧</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hline"></div>
+      <h3 style="margin:6px 0;">第二关：学习移动 / Stage 2: Movement Path</h3>
+      <div class="grid">
+        <div class="field">
+          <label>段数 / Segments</label>
+          <input type="number" id="s2_segments" min="1" step="1" />
+        </div>
+        <div class="field">
+          <label>倒计时（秒）/ Time Limit (s)</label>
+          <input type="number" id="s2_time" min="0" step="1" />
+          <span class="subtle">0 表示不限制 / 0 = unlimited</span>
+        </div>
+      </div>
+
+      <div class="hline"></div>
+      <h3 style="margin:6px 0;">第三关：六边形柱按钮射击 / Stage 3: Hex Buttons</h3>
+      <div class="grid">
+        <div class="field">
+          <label>站立区距按钮直线距离 / Zone→Button Distance</label>
+          <input type="number" id="s3_zone_dist" min="1" step="0.1" />
+        </div>
+        <div class="field">
+          <label>倒计时（秒）/ Time Limit (s)</label>
+          <input type="number" id="s3_time" min="0" step="1" />
+          <span class="subtle">0 表示不限制 / 0 = unlimited</span>
+        </div>
+        <div class="field full">
+          <canvas id="miniMap" width="220" height="220"></canvas>
+          <div class="subtle">小地图：中心为六边形柱；红圈为按钮环；黄圈为站位区距离；可拖拽调整。</div>
+        </div>
+      </div>
+
+      <div class="hline"></div>
+      <h3 style="margin:6px 0;">第四关：移动带打靶 / Stage 4: Moving Belts</h3>
+      <div class="grid">
+        <div class="field">
+          <label>倒计时（秒）/ Time Limit (s)</label>
+          <input type="number" id="s4_time" min="0" step="1" />
+          <span class="subtle">0 表示不限制 / 0 = unlimited</span>
+        </div>
+        <div class="field">
+          <label>速度（慢/中/快）/ Speeds</label>
+          <input type="number" id="s4_spd_0" step="0.05" />
+          <input type="number" id="s4_spd_1" step="0.05" />
+          <input type="number" id="s4_spd_2" step="0.05" />
+        </div>
+        <div class="field">
+          <label>与靶子距离（慢/中/快）/ Distances to Target (z)</label>
+          <input type="number" id="s4_dist_0" step="0.1" />
+          <input type="number" id="s4_dist_1" step="0.1" />
+          <input type="number" id="s4_dist_2" step="0.1" />
+          <span class="subtle">单位：米（沿 z 轴）。数值越大→离靶更远。</span>
+        </div>
+      </div>
+
+      <div class="hline"></div>
+      <div class="row" style="gap:8px; margin-top:6px;">
+        <button class="btn inline" id="cfgApplyBtn">应用并保存 / Apply & Save</button>
+        <button class="btn inline" id="cfgCloseBtn">关闭 / Close</button>
+        <button class="btn inline" id="cfgResetBtn">恢复默认 / Reset Defaults</button>
+      </div>
+      <div class="subtle">提示：若当前关卡正在进行，应用后会自动重载该关。</div>
+    </div>
+  </div>
+
+
+<script>
+(function(){
+  const EDIT_KEY = 'scg4_editor_cfg_v1';
+  const DEFAULT_CFG = {
+    stage1: { timeLimit: 60, promptLifetime:[3.0,5.0], promptGap:[0.25,0.7], keys:{W:true,A:true,S:true,D:true,Space:true,Shift:true} },
+    stage2: { timeLimit: 0, segments: 5 },
+    stage3: { timeLimit: 0, zoneDistance: 4.65 },
+    stage4: { timeLimit: 60, speeds:[1.25,2.5,3.75], distances:[11.5,9.0,6.5] }
+  };
+  function deepMerge(target, src){
+    if (!src || typeof src!=='object') return target;
+    const out = Array.isArray(target) ? target.slice() : Object.assign({}, target);
+    for(const k of Object.keys(src)){
+      const v=src[k];
+      if (v && typeof v==='object' && !Array.isArray(v)) out[k] = deepMerge(out[k]||{}, v);
+      else out[k] = v;
+    }
+    return out;
+  }
+  function loadCFG(){ try{ const raw = JSON.parse(localStorage.getItem(EDIT_KEY)||'{}'); return deepMerge(DEFAULT_CFG, raw); } catch(e){ return JSON.parse(JSON.stringify(DEFAULT_CFG)); } }
+  function saveCFG(){ try{ localStorage.setItem(EDIT_KEY, JSON.stringify(CFG)); }catch(e){} }
+  window.CFG = loadCFG(); window.DEFAULT_CFG = DEFAULT_CFG; window.saveCFG = saveCFG;
+
+  function populateEditorFromCFG(){
+    const $=id=>document.getElementById(id);
+    if(!$('s1_time')) return;
+    $('s1_time').value = CFG.stage1.timeLimit ?? 60;
+    $('s1_life_min').value = CFG.stage1.promptLifetime?.[0] ?? 3.0;
+    $('s1_life_max').value = CFG.stage1.promptLifetime?.[1] ?? 5.0;
+    $('s1_gap_min').value = CFG.stage1.promptGap?.[0] ?? 0.25;
+    $('s1_gap_max').value = CFG.stage1.promptGap?.[1] ?? 0.7;
+    document.querySelectorAll('#s1_keys .chip').forEach(ch=>{ const k=ch.dataset.k; ch.classList.toggle('toggled', !!(CFG.stage1.keys && CFG.stage1.keys[k])); });
+
+    $('s2_segments').value = CFG.stage2.segments ?? 5;
+    $('s2_time').value = CFG.stage2.timeLimit ?? 0;
+
+    $('s3_zone_dist').value = CFG.stage3.zoneDistance ?? 4.65;
+    $('s3_time').value = CFG.stage3.timeLimit ?? 0;
+
+    $('s4_time').value = CFG.stage4.timeLimit ?? 60;
+    ['s4_spd_0','s4_spd_1','s4_spd_2'].forEach((id,i)=>{ $(id).value = CFG.stage4.speeds?.[i] ?? [1.25,2.5,3.75][i]; });
+    ['s4_dist_0','s4_dist_1','s4_dist_2'].forEach((id,i)=>{ $(id).value = CFG.stage4.distances?.[i] ?? [11.5,9.0,6.5][i]; });
+  }
+  function applyFromInputs(){
+    const $=id=>document.getElementById(id);
+    CFG.stage1.timeLimit = Math.max(0, parseFloat($('s1_time').value||0));
+    CFG.stage1.promptLifetime = [parseFloat($('s1_life_min').value||3.0), parseFloat($('s1_life_max').value||5.0)];
+    CFG.stage1.promptGap = [parseFloat($('s1_gap_min').value||0.25), parseFloat($('s1_gap_max').value||0.7)];
+    CFG.stage1.keys = {}; document.querySelectorAll('#s1_keys .chip').forEach(ch=>{ if(ch.classList.contains('toggled')) CFG.stage1.keys[ch.dataset.k]=true; });
+
+    CFG.stage2.segments = Math.max(1, parseInt($('s2_segments').value||5,10));
+    CFG.stage2.timeLimit = Math.max(0, parseFloat($('s2_time').value||0));
+
+    CFG.stage3.zoneDistance = Math.max(1, parseFloat($('s3_zone_dist').value||4.65));
+    CFG.stage3.timeLimit = Math.max(0, parseFloat($('s3_time').value||0));
+
+    CFG.stage4.timeLimit = Math.max(0, parseFloat($('s4_time').value||60));
+    CFG.stage4.speeds = [0,1,2].map(i=>parseFloat(document.getElementById('s4_spd_'+i).value||[1.25,2.5,3.75][i]));
+    CFG.stage4.distances = [0,1,2].map(i=>parseFloat(document.getElementById('s4_dist_'+i).value||[11.5,9.0,6.5][i]));
+    saveCFG();
+  }
+
+  function showEditor(){ const menuEl=document.getElementById('menu'); if (menuEl) menuEl.style.display='none'; document.getElementById('editor').style.display='flex'; populateEditorFromCFG(); bindMiniMapDrag(); drawMiniMap(); }
+  function hideEditor(){ document.getElementById('editor').style.display='none'; }
+
+  function bindEditorButtons(){
+    const ob=document.getElementById('editorOpenBtn'); if(ob && !ob.__b){ob.__b=true; ob.addEventListener('click', showEditor);}
+    const cb=document.getElementById('cfgCloseBtn'); if(cb && !cb.__b){cb.__b=true; cb.addEventListener('click', hideEditor);}
+    const ab=document.getElementById('cfgApplyBtn'); if(ab && !ab.__b){ab.__b=true; ab.addEventListener('click', ()=>{ applyFromInputs(); hideEditor(); if (typeof isTransitioning!=='undefined'){ isTransitioning=true; setTimeout(()=>{ loadStage(currentStage); isTransitioning=false; }, 100); } });}
+    const rb=document.getElementById('cfgResetBtn'); if(rb && !rb.__b){rb.__b=true; rb.addEventListener('click', ()=>{ window.CFG = JSON.parse(JSON.stringify(DEFAULT_CFG)); saveCFG(); populateEditorFromCFG(); drawMiniMap(); });}
+    const mrb=document.getElementById('editorResetBtn'); if(mrb && !mrb.__b){mrb.__b=true; mrb.addEventListener('click', ()=>{ window.CFG = JSON.parse(JSON.stringify(DEFAULT_CFG)); saveCFG(); });}
+    const chips=document.getElementById('s1_keys'); if(chips && !chips.__b){chips.__b=true; chips.addEventListener('click',(e)=>{ const t=e.target.closest('.chip'); if(!t) return; t.classList.toggle('toggled'); });}
+  }
+
+  // MiniMap draw & drag for Stage 3 distance
+  let dragging=false;
+  function drawMiniMap(){
+    const mini = document.getElementById('miniMap'); if (!mini) return;
+    const ctx = mini.getContext('2d'); const W=mini.width, H=mini.height; ctx.clearRect(0,0,W,H);
+    const cx=W/2, cy=H/2; const meterToPx = (Math.min(W,H)/2 - 10) / 12;
+    function circle(r, stroke){ ctx.beginPath(); ctx.arc(cx,cy, r*meterToPx, 0, Math.PI*2); ctx.strokeStyle=stroke; ctx.lineWidth=2; ctx.stroke(); }
+    circle(12, '#555'); circle(2.0, '#ccc'); circle(2.35, '#ff4444');
+    const zoneR = 2.35 + (CFG.stage3.zoneDistance||4.65); circle(zoneR, '#ffdd57');
+    const hx = cx + zoneR * meterToPx, hy = cy;
+    ctx.beginPath(); ctx.arc(hx, hy, 6, 0, Math.PI*2); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#000'; ctx.stroke();
+  }
+  function bindMiniMapDrag(){
+    const mini = document.getElementById('miniMap'); if (!mini || mini.__b) return; mini.__b=true;
+    mini.addEventListener('mousedown', ()=>dragging=true);
+    mini.addEventListener('mouseup', ()=>dragging=false);
+    mini.addEventListener('mouseleave', ()=>dragging=false);
+    mini.addEventListener('mousemove', (e)=>{
+      if(!dragging) return;
+      const rect = mini.getBoundingClientRect();
+      const x = e.clientX - rect.left, y = e.clientY - rect.top;
+      const cx = mini.width/2, cy = mini.height/2;
+      const dx = x - cx, dy = y - cy;
+      const rpx = Math.sqrt(dx*dx + dy*dy);
+      const meterToPx = (Math.min(mini.width, mini.height)/2 - 10) / 12;
+      const btnR = 2.35;
+      let zoneR = Math.max(btnR+0.5, Math.min(11.5, rpx / meterToPx));
+      CFG.stage3.zoneDistance = (zoneR - btnR);
+      const inEl = document.getElementById('s3_zone_dist'); if (inEl) inEl.value = CFG.stage3.zoneDistance.toFixed(2);
+      saveCFG(); drawMiniMap();
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', ()=>{ bindEditorButtons(); });
+})();
+</script>
+
+</body>
+</html>
 </body>
 </html>
