@@ -495,13 +495,27 @@
 
     createToyGun(); camera.add(toyGun); scene.add(camera);
 
-    blocker.addEventListener('click', ()=>{ 
-        if (document.pointerLockElement !== document.body) {
-            document.body.requestPointerLock().catch(err => { console.warn("Pointer lock request failed:", err); });
-        }
+    let __plPending = false;
+    function safeRequestPointerLock(reason=''){
+      if (__plPending) return;               // avoid overlapping requests
+      if (typeof isTransitioning!=='undefined' && isTransitioning) return; // skip during transitions
+      if (document.pointerLockElement === document.body) return; // already locked
+      __plPending = true;
+      try {
+        document.body.requestPointerLock();
+      } catch(e) {
+        // Ignore benign SecurityError when user leaves before completion
+        if (!(e && e.name === 'SecurityError')) { console.debug('Pointer lock request exception:', e); }
+        __plPending = false;
+      }
+    }
+    blocker.addEventListener('click', ()=>{ safeRequestPointerLock('blocker-click'); });
+    document.addEventListener('pointerlockchange', ()=>{ __plPending = false; onLockChange(); });
+    document.addEventListener('pointerlockerror', (e)=>{ 
+      // Browsers may fire this if the user exits early; don't spam console as warning
+      if (!(e && e.name === 'SecurityError')) console.debug('Pointer lock error', e); 
+      __plPending = false; 
     });
-    document.addEventListener('pointerlockchange', onLockChange);
-    document.addEventListener('pointerlockerror', (e)=>{ console.warn("Pointer lock error", e); });
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('keydown', onKeyDown);
@@ -633,7 +647,7 @@
     const resumeBtn = document.getElementById('resumeBtn');
     const restartBtn = document.getElementById('restartBtn');
     const quitBtn = document.getElementById('quitBtn');
-    if (resumeBtn) resumeBtn.onclick = ()=>{ document.body.requestPointerLock().catch(err => console.warn("Pointer lock request failed:", err)); menuEl.style.display='none'; };
+    if (resumeBtn) resumeBtn.onclick = ()=>{ safeRequestPointerLock('resume-btn'); menuEl.style.display='none'; };
     if (restartBtn) restartBtn.onclick = ()=>{ menuEl.style.display='none'; hideIntro(); isTransitioning=true; setTimeout(()=>{ loadStage(currentStage); isTransitioning=false; }, 80); };
     if (quitBtn) quitBtn.onclick = ()=>{ menuEl.style.display='none'; showIntro(); if (overlayMode==='intro') updateIntroForStage(); };
     [...menuEl.querySelectorAll('button[data-level]')].forEach(btn=>{
@@ -2097,7 +2111,7 @@ function keyPool() {
     stage3: { timeLimit: 0, zoneDistance: 4.65 },
     stage4: { timeLimit: 60, speeds:[1.25,2.5,3.75], distances:[11.5,9.0,6.5] }
   ,
-    crosshair: { sizePx: 28, thicknessPx: 3, glowSizePx: 0.2, color: '#00ff66' },
+    crosshair: { sizePx: 28, thicknessPx: 3, glowSizePx: 1.0, color: '#00ff66' },
     lanterns: { brightness: 0.85, count: 24, height: 3.8, colors: ['#24d1ff','#ffa64d','#ff6ad5','#9af07f'] }
   };
   function deepMerge(target, src){
