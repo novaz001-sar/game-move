@@ -42,14 +42,17 @@
     }
     #crosshair {
       position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
-      width:24px; height:24px; pointer-events:none; display:none;
+      width:var(--ch-size, 28px); height:var(--ch-size, 28px);
+      pointer-events:none; display:none;
+      filter: drop-shadow(0 0 var(--ch-glow-size, 2px) var(--ch-color, #00ff66)) drop-shadow(0 0 calc(var(--ch-glow-size, 2px) * 2) var(--ch-color, #00ff66));
     }
     #crosshair:before, #crosshair:after {
       content:""; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-      background:#fff; box-shadow:0 0 0 2px #f33; border-radius:1px;
+      background: var(--ch-color, #00ff66); border-radius:1px;
+      box-shadow: 0 0 var(--ch-glow-size, 2px) var(--ch-color, #00ff66), 0 0 calc(var(--ch-glow-size, 2px) * 3) var(--ch-color, #00ff66);
     }
-    #crosshair:before { width:2px; height:20px; }
-    #crosshair:after { width:20px; height:2px; }
+    #crosshair:before { width:var(--ch-thickness, 3px); height:calc(var(--ch-size, 28px) - 6px); }
+    #crosshair:after  { width:calc(var(--ch-size, 28px) - 6px); height:var(--ch-thickness, 3px); }
 
     /* Key helper */
     #keys {
@@ -315,7 +318,7 @@
       score_this_run: 'Score this run: <b>{x}</b>',
       click_continue: 'Click to continue or pick another level in the menu.',
       all_completed: 'All Completed',
-      final_time: 'Final time: <b>{t}s</b>',
+      final_time: '最终关用时：<b>{t}s</b>',
       label_up: 'Up',
       label_down: 'Down',
       label_left: 'Left',
@@ -343,7 +346,12 @@
   const gravity = 30, jumpForce = 10;
   const keys = {};
   const clock = new THREE.Clock();
-  const euler = new THREE.Euler(0,0,0,'YXZ');
+  
+  // Camera smoothing variables
+  const smoothingFactor = 0.1; // Lower value = more smoothing
+  let euler = new THREE.Euler(0,0,0,'YXZ');
+  let targetEuler = new THREE.Euler(0,0,0,'YXZ');
+  
   const PI_2 = Math.PI / 2;
 
   let currentStage = 1;
@@ -458,7 +466,7 @@
         starField3.visible = starField3.material.opacity > 0.02;
       }
     
-      if (moonGroup){
+      if (false /* moon disabled */){
         const ph = (time % cycle.len) / cycle.len;
         const dayMix = 0.5 - 0.5 * Math.cos(ph * Math.PI * 2);
         const nightAmt = Math.pow(1 - dayMix, 1.10);
@@ -482,7 +490,7 @@
     starField2 = createStars(1600, 430, 0.9, 0xDDEBFF, false); scene.add(starField2);
     // Layer 3: lavender additive glow
     starField3 = createStars(2400, 440, 1.7, 0xDCC7FF, true); scene.add(starField3);
-    createMoonRealistic();
+    // createMoonRealistic(); // disabled (no moon)
     loadBest();
 
     createToyGun(); camera.add(toyGun); scene.add(camera);
@@ -500,6 +508,7 @@
     document.addEventListener('keyup', onKeyUp);
     addMenuHandlers();
     addLangHandlers();
+    updateCrosshairFromCFG(); // Call once at init
     window.addEventListener('resize', ()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 
     loadStage(1);
@@ -578,6 +587,32 @@
   function showIntro(){ overlayMode='intro'; blocker.style.display='flex'; }
   function hideIntro(){ blocker.style.display='none'; }
 
+  
+  /*********************
+   * Crosshair config apply
+   *********************/
+  function updateCrosshairFromCFG(){
+    try {
+      const el = document.getElementById('crosshair');
+      if (!el) return;
+      // Get config from global CFG, which is loaded from local storage
+      const cfg = (window.CFG && CFG.crosshair) ? CFG.crosshair : {};
+      const size = Math.max(8, Math.min(160, parseInt(cfg.sizePx||28,10)));
+      const thick = Math.max(1, Math.min(size, parseInt(cfg.thicknessPx||3,10)));
+      const glowSize = Math.max(0, parseFloat(cfg.glowSizePx || 1));
+      const color = (cfg.color || '#00ff66');
+      
+      // Update CSS custom properties
+      el.style.setProperty('--ch-size', size+'px');
+      el.style.setProperty('--ch-thickness', thick+'px');
+      el.style.setProperty('--ch-glow-size', glowSize+'px');
+      el.style.setProperty('--ch-color', color);
+    } catch(e){
+      console.error("Failed to update crosshair from config:", e);
+    }
+  }
+
+
   /*********************
    * Pointer Lock / Menu
    *********************/
@@ -633,6 +668,7 @@
     camera.position.set(0, playerHeight, 6);
     camera.quaternion.set(0,0,0,1);
     euler.set(0,0,0,'YXZ');
+    targetEuler.set(0,0,0,'YXZ');
 
     scorebox.style.display = 'none';
     counterEl.textContent = '';
@@ -698,7 +734,7 @@
   }
 
   function createFloorCircle(radius) {
-    const geo = new THREE.CylinderGeometry(radius, radius, .2, 64);
+    const geo = new THREE.CylinderGeometry(radius, radius, .2, 96);
     // UVs
     const pos = geo.attributes.position;
     const uv = new Float32Array(pos.count * 2);
@@ -778,8 +814,8 @@
       const lanternFrame = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.9, 6), new THREE.MeshStandardMaterial({ color:0x2c2c2c, roughness:0.6, metalness:0.2 }));
       lanternFrame.position.y = 0.35 + poleH + 0.55; g.add(lanternFrame);
 
-      // Glass inner
-      const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.30, 0.8, 6), new THREE.MeshStandardMaterial({ color:0xffe2a0, emissive:0xffe2a0, emissiveIntensity:1.6, transparent:true, opacity:0.65 }));
+      // Glass inner - now with gem-like geometry
+      const glass = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 1), new THREE.MeshStandardMaterial({ color:0x12e9ff, emissive:0x12e9ff, emissiveIntensity:1.6, transparent:true, opacity:0.65 }));
       glass.position.y = 0.35 + poleH + 0.55; g.add(glass);
 
       // Cap and finial
@@ -789,7 +825,7 @@
       finial.position.y = 0.35 + poleH + 1.28; g.add(finial);
 
       // Warm point light
-      const light = new THREE.PointLight(0xffe2a0, 1.6, 20, 2.0);
+      const light = new THREE.PointLight(0x12e9ff, 1.6, 20, 2.0);
       light.position.set(0, 0.35 + poleH + 0.55, 0);
       light.castShadow = false;
       g.add(light);
@@ -819,7 +855,7 @@
         { dist: 0.85, count: 8, offset: 0 },
         { dist: 0.45, count: 4, offset: Math.PI / 4 }
     ];
-    const colors = [0xff00ff, 0x00ffff, 0xffff00, 0x00ff00, 0xff8800];
+    const colors = [0x12e9ff];
     const lampHeight = 0.6;
     let lampIndex = 0;
 
@@ -865,6 +901,150 @@
   }
 
   
+  function createFloatingGemLanterns(radius, opts={}){
+  const count = (opts.count ?? 24);
+  const ringOffset = (opts.ringOffset ?? 0.22);
+  const h = (opts.height ?? 3.8);
+  const bobAmp = (opts.bobAmp ?? 0.16);
+  const rotSpeed = (opts.rotSpeed ?? 0.35);
+  const colors = (opts.colors ?? [0x24d1ff, 0xffa64d, 0xff6ad5, 0x9af07f]);
+
+  // group to keep references if needed
+  const lanternGroup = new THREE.Group();
+  scene.add(lanternGroup);
+  stageObjects.push(lanternGroup);
+
+  for (let i = 0; i < count; i++) {
+    const g = new THREE.Group();
+
+    // Core gem (dimmer emissive)
+    const color = colors[i % colors.length];
+    const gem = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.34, 1),
+      new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.9,  // lowered from ~1.6
+        transparent: true,
+        opacity: 0.82,
+        roughness: 0.25,
+        metalness: 0.05
+      })
+    );
+    gem.position.y = 0;
+    g.add(gem);
+
+    // Gilded ring (thin torus)
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.52, 0.03, 12, 64),
+      new THREE.MeshStandardMaterial({
+        color: 0xd4af37, // gold
+        metalness: 0.8,
+        roughness: 0.2,
+        emissive: 0x000000
+      })
+    );
+    ring.rotation.x = Math.PI * 0.5;
+    g.add(ring);
+
+    // Filigree frame (slim struts)
+    const strutMat = new THREE.MeshStandardMaterial({ color: 0xf1e5b6, metalness: 0.6, roughness: 0.35 });
+    const strutGeom = new THREE.CylinderGeometry(0.01, 0.01, 0.9, 8);
+    const strut1 = new THREE.Mesh(strutGeom, strutMat);
+    strut1.position.set(0.0, 0.0, 0.45);
+    const strut2 = strut1.clone(); strut2.position.z = -0.45;
+    const strut3 = strut1.clone(); strut3.position.x = 0.45; strut3.position.z = 0;
+    const strut4 = strut3.clone(); strut4.position.x = -0.45;
+    g.add(strut1, strut2, strut3, strut4);
+
+    // Dangling teardrop ornament
+    const chain = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.008, 0.008, 0.3, 6),
+      new THREE.MeshStandardMaterial({ color: 0xd4c26b, metalness: 0.7, roughness: 0.4 })
+    );
+    chain.position.y = -0.6;
+    g.add(chain);
+
+    const tear = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.15, 0),
+      new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.6, // subtle glow
+        transparent: true,
+        opacity: 0.85,
+        roughness: 0.2
+      })
+    );
+    tear.position.y = -0.9;
+    g.add(tear);
+
+    // Soft halo sprite (dimmer and smaller)
+    const size = 256;
+    const cvs = document.createElement('canvas'); cvs.width = cvs.height = size;
+    const ctx = cvs.getContext('2d');
+    const grad = ctx.createRadialGradient(size/2, size/2, size*0.08, size/2, size/2, size*0.45);
+    grad.addColorStop(0, 'rgba(255,255,255,0.25)');
+    grad.addColorStop(1, 'rgba(255,255,255,0.0)');
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(size/2, size/2, size*0.48, 0, Math.PI*2); ctx.fill();
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(cvs), transparent: true, depthWrite:false,
+      blending: THREE.AdditiveBlending, opacity: 0.55  // lowered
+    }));
+    halo.scale.set(1.5, 1.5, 1);
+    halo.position.y = 0;
+    g.add(halo);
+
+    // Dimmer point light with gentle falloff
+    const light = new THREE.PointLight(color, 0.6, 12, 2.0); // intensity lowered
+    light.position.y = 0;
+    g.add(light);
+
+    // Tiny sparkle particles
+    const pGeo = new THREE.BufferGeometry();
+    const pCount = 16;
+    const positions = new Float32Array(pCount * 3);
+    for (let k = 0; k < pCount; k++) {
+      const r = 0.6 * Math.random();
+      const ang = Math.random() * Math.PI * 2;
+      positions[3*k] = Math.cos(ang) * r;
+      positions[3*k+1] = (Math.random() - 0.5) * 0.6;
+      positions[3*k+2] = Math.sin(ang) * r;
+    }
+    pGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const pMat = new THREE.PointsMaterial({ size: 0.03, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending, color });
+    const sparkles = new THREE.Points(pGeo, pMat);
+    g.add(sparkles);
+
+    // Placement around arena
+    const ang = (i / count) * Math.PI * 2;
+    const R = radius - ringOffset;
+    g.position.set(Math.cos(ang) * R, h, Math.sin(ang) * R);
+    g.lookAt(0, h, 0);
+
+    const phase = Math.random() * Math.PI * 2;
+    const anim = (time, dt) => {
+      const bob = Math.sin(time * 1.2 + phase) * bobAmp;
+      g.position.y = h + bob;
+      gem.rotation.y += rotSpeed * dt;
+      ring.rotation.z += 0.15 * dt;
+
+      // gentle twinkle with lower ceilings
+      const tw = 0.8 + 0.15 * Math.sin(time * 2.1 + phase);
+      light.intensity = 0.6 * tw;
+      gem.material.emissiveIntensity = 0.85 * tw;
+      tear.material.emissiveIntensity = 0.55 * tw;
+      halo.material.opacity = 0.5 + 0.15 * Math.sin(time * 1.4 + phase + 0.6);
+
+      // subtle sparkle fade
+      pMat.opacity = 0.55 + 0.25 * Math.abs(Math.sin(time * 1.8 + phase * 0.7));
+    };
+    anim.__stageBound = true;
+    animated.push(anim);
+
+    lanternGroup.add(g);
+  }
+}
   function createClassicStreetLamps(radius, count=16){
     const lamps = [];
     const R = radius + 0.9;
@@ -890,7 +1070,7 @@
       const lanternFrame = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.9, 6), new THREE.MeshStandardMaterial({ color:0x2c2c2c, roughness:0.6, metalness:0.2 }));
       lanternFrame.position.y = 0.35 + poleH + 0.55; g.add(lanternFrame);
 
-      const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.30, 0.8, 6), new THREE.MeshStandardMaterial({ color:0xffe2a0, emissive:0xffe2a0, emissiveIntensity:1.6, transparent:true, opacity:0.65 }));
+      const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.30, 0.8, 6), new THREE.MeshStandardMaterial({ color:0x12e9ff, emissive:0x12e9ff, emissiveIntensity:1.6, transparent:true, opacity:0.65 }));
       glass.position.y = 0.35 + poleH + 0.55; g.add(glass);
 
       const cap = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.25, 12), new THREE.MeshStandardMaterial({ color:0x444444, roughness:0.55, metalness:0.2 }));
@@ -898,7 +1078,7 @@
       const finial = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), new THREE.MeshStandardMaterial({ color:0xb3b3b3, roughness:0.35, metalness:0.8 }));
       finial.position.y = 0.35 + poleH + 1.28; g.add(finial);
 
-      const light = new THREE.PointLight(0xffe2a0, 1.6, 20, 2.0);
+      const light = new THREE.PointLight(0x12e9ff, 1.6, 20, 2.0);
       light.position.set(0, 0.35 + poleH + 0.55, 0);
       g.add(light);
 
@@ -1071,11 +1251,13 @@
     if (document.pointerLockElement!==document.body) return;
     const dx = e.movementX||0, dy=e.movementY||0;
     if (Math.abs(dx)>500 || Math.abs(dy)>500) return;
-    euler.setFromQuaternion(camera.quaternion);
-    euler.y -= dx * 0.002;
-    euler.x -= dy * 0.002;
-    euler.x = Math.max(-PI_2, Math.min(PI_2, euler.x));
-    camera.quaternion.setFromEuler(euler);
+    
+    // Update target Euler angles directly from mouse movement
+    targetEuler.y -= dx * 0.002;
+    targetEuler.x -= dy * 0.002;
+    
+    // Clamp vertical rotation to prevent camera flip
+    targetEuler.x = Math.max(-PI_2, Math.min(PI_2, targetEuler.x));
   }
   function onKeyDown(e){
     keys[e.code]=true;
@@ -1092,6 +1274,11 @@
   function onKeyUp(e){ keys[e.code]=false; }
 
   function updatePlayer(dt){
+    // Smoothly interpolate the actual camera rotation towards the target rotation
+    euler.y = euler.y + (targetEuler.y - euler.y) * smoothingFactor;
+    euler.x = euler.x + (targetEuler.x - euler.x) * smoothingFactor;
+    camera.quaternion.setFromEuler(euler);
+
     const dir = new THREE.Vector3();
     if (keys['KeyW']) dir.z -= 1;
     if (keys['KeyS']) dir.z += 1;
@@ -1188,8 +1375,14 @@
     const R = 18;
     createFloorCircle(R);
     createCircularWall(R + 0.6, 2.2, 0x666);
-    createClassicLamps(R, 16);
-
+    // createClassicLamps(R, 16); // 取消路灯
+    const LCFG = (window.CFG && CFG.lanterns) ? CFG.lanterns : {};
+    createFloatingGemLanterns(R, {
+      count: LCFG.count ?? 24,
+      height: LCFG.height ?? 3.8,
+      brightness: LCFG.brightness ?? 0.85,
+      colors: (LCFG.colors && LCFG.colors.length ? LCFG.colors.map(c => (typeof c==='string' && c[0]==='#' ? parseInt(c.slice(1),16) : c)) : undefined)
+    });
     rhythmState = { timeLimit: (window.CFG && CFG.stage1 && CFG.stage1.timeLimit ? CFG.stage1.timeLimit : 60), lifetimeMin: (window.CFG && CFG.stage1 && CFG.stage1.promptLifetime ? CFG.stage1.promptLifetime[0] : 3.0), lifetimeMax: (window.CFG && CFG.stage1 && CFG.stage1.promptLifetime ? CFG.stage1.promptLifetime[1] : 5.0), minGap: (window.CFG && CFG.stage1 && CFG.stage1.promptGap ? CFG.stage1.promptGap[0] : 0.25), maxGap: (window.CFG && CFG.stage1 && CFG.stage1.promptGap ? CFG.stage1.promptGap[1] : 0.7),
       score: 0, active: false, expected: null, spawnTime: 0, activeUntil: 0, nextPromptAt: 0, misses: 0
     };
@@ -1293,7 +1486,14 @@ function keyPool() {
     const R = 18;
     createFloorCircle(R);
     createCircularWall(R+0.6, 2.2, 0x666);
-    createClassicLamps(R, 16);
+    // createClassicLamps(R, 16); // 取消路灯
+    const LCFG = (window.CFG && CFG.lanterns) ? CFG.lanterns : {};
+    createFloatingGemLanterns(R, {
+      count: LCFG.count ?? 24,
+      height: LCFG.height ?? 3.8,
+      brightness: LCFG.brightness ?? 0.85,
+      colors: (LCFG.colors && LCFG.colors.length ? LCFG.colors.map(c => (typeof c==='string' && c[0]==='#' ? parseInt(c.slice(1),16) : c)) : undefined)
+    });
 
     movePathState = {
       radius: R, halfWidth: 1.0, total: 5, index: 0,
@@ -1328,7 +1528,7 @@ function keyPool() {
     if (o1 != o2 && o3 != o4) return true;
     if (o1 == 0 && onSegment(p1, p2, q1)) return true;
     if (o2 == 0 && onSegment(p1, q2, q1)) return true;
-    if (o3 == 0 && onSegment(p2, p1, q2)) return true;
+    if (o3 == 0 && onSegment(p2, q2, p1)) return true;
     if (o4 == 0 && onSegment(p2, q1, q2)) return true;
     return false;
   }
@@ -1419,7 +1619,15 @@ function keyPool() {
    *********************/
   function setupStage3_HexButtons(){
     const R=18;
-    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666); createClassicLamps(R, 16);
+    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666);
+    // createClassicLamps(R, 16); // 取消路灯
+    const LCFG = (window.CFG && CFG.lanterns) ? CFG.lanterns : {};
+    createFloatingGemLanterns(R, {
+      count: LCFG.count ?? 24,
+      height: LCFG.height ?? 3.8,
+      brightness: LCFG.brightness ?? 0.85,
+      colors: (LCFG.colors && LCFG.colors.length ? LCFG.colors.map(c => (typeof c==='string' && c[0]==='#' ? parseInt(c.slice(1),16) : c)) : undefined)
+    });
 
     const h = 3.6;
     const hex = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, h, 6), new THREE.MeshStandardMaterial({ color:0x888, metalness:.0, roughness:.7 }));
@@ -1473,7 +1681,15 @@ function keyPool() {
   *********************/
   function setupStage4_MovingBelts(){
     const R=18;
-    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666); createClassicLamps(R, 16);
+    createFloorCircle(R); createCircularWall(R+0.6, 2.2, 0x666);
+    // createClassicLamps(R, 16); // 取消路灯
+    const LCFG = (window.CFG && CFG.lanterns) ? CFG.lanterns : {};
+    createFloatingGemLanterns(R, {
+      count: LCFG.count ?? 24,
+      height: LCFG.height ?? 3.8,
+      brightness: LCFG.brightness ?? 0.85,
+      colors: (LCFG.colors && LCFG.colors.length ? LCFG.colors.map(c => (typeof c==='string' && c[0]==='#' ? parseInt(c.slice(1),16) : c)) : undefined)
+    });
 
     const speeds = ((window.CFG && CFG.stage4 && CFG.stage4.speeds) ? CFG.stage4.speeds : [1.25,2.5,3.75]);
     const targetZ = -14; const zPositions = ((window.CFG && CFG.stage4 && CFG.stage4.distances) ? CFG.stage4.distances : [11.5,9.0,6.5]).map(d=>targetZ + d);
@@ -1805,7 +2021,63 @@ function keyPool() {
         </div>
       </div>
 
-      <div class="hline"></div>
+      <h3 style="margin:6px 0;">准星设置 / Crosshair</h3>
+<div class="grid">
+  <div class="field">
+    <label>大小（px）/ Size</label>
+    <input type="number" id="ch_size" min="8" step="1" />
+  </div>
+  <div class="field">
+    <label>粗细（px）/ Thickness</label>
+    <input type="number" id="ch_thick" min="1" step="1" />
+  </div>
+  <div class="field">
+    <label>荧光大小（px）/ Glow Size (px)</label>
+    <input type="number" id="ch_glow_size" min="0" step="0.5" />
+  </div>
+  <div class="field">
+    <label>颜色 / Color</label>
+    <input type="color" id="ch_color" />
+    <span class="subtle">可直接输入 #RRGGBB</span>
+  </div>
+</div>
+
+
+      <h3 style="margin:16px 0 6px;">宝石灯 / Gem Lanterns</h3>
+      <div class="grid">
+        <div class="field">
+          <label>亮度 / Brightness</label>
+          <input type="range" id="lan_brightness" min="0.2" max="1.5" step="0.05" />
+          <span class="subtle">0.2–1.5，默认 0.85</span>
+        </div>
+        <div class="field">
+          <label>数量 / Count</label>
+          <input type="number" id="lan_count" min="6" max="64" step="1" />
+        </div>
+        <div class="field">
+          <label>高度（米）/ Height (m)</label>
+          <input type="number" id="lan_height" min="1" max="8" step="0.1" />
+        </div>
+        <div class="field">
+          <label>颜色 1</label>
+          <input type="color" id="lan_color1" />
+        </div>
+        <div class="field">
+          <label>颜色 2</label>
+          <input type="color" id="lan_color2" />
+        </div>
+        <div class="field">
+          <label>颜色 3</label>
+          <input type="color" id="lan_color3" />
+        </div>
+        <div class="field">
+          <label>颜色 4</label>
+          <input type="color" id="lan_color4" />
+        </div>
+      </div>
+      <div class="subtle">提示：颜色以 #RRGGBB 形式保存，应用后将用于四周漂浮宝石灯。</div>
+
+      <div class="hline"></div><div class="hline"></div>
       <div class="row" style="gap:8px; margin-top:6px;">
         <button class="btn inline" id="cfgApplyBtn">应用并保存 / Apply & Save</button>
         <button class="btn inline" id="cfgCloseBtn">关闭 / Close</button>
@@ -1824,6 +2096,9 @@ function keyPool() {
     stage2: { timeLimit: 0, segments: 5 },
     stage3: { timeLimit: 0, zoneDistance: 4.65 },
     stage4: { timeLimit: 60, speeds:[1.25,2.5,3.75], distances:[11.5,9.0,6.5] }
+  ,
+    crosshair: { sizePx: 28, thicknessPx: 3, glowSizePx: 1.0, color: '#00ff66' },
+    lanterns: { brightness: 0.85, count: 24, height: 3.8, colors: ['#24d1ff','#ffa64d','#ff6ad5','#9af07f'] }
   };
   function deepMerge(target, src){
     if (!src || typeof src!=='object') return target;
@@ -1858,6 +2133,12 @@ function keyPool() {
     $('s4_time').value = CFG.stage4.timeLimit ?? 60;
     ['s4_spd_0','s4_spd_1','s4_spd_2'].forEach((id,i)=>{ $(id).value = CFG.stage4.speeds?.[i] ?? [1.25,2.5,3.75][i]; });
     ['s4_dist_0','s4_dist_1','s4_dist_2'].forEach((id,i)=>{ $(id).value = CFG.stage4.distances?.[i] ?? [11.5,9.0,6.5][i]; });
+    
+    // Crosshair values
+    $('ch_size').value = CFG.crosshair.sizePx ?? 28;
+    $('ch_thick').value = CFG.crosshair.thicknessPx ?? 3;
+    $('ch_glow_size').value = CFG.crosshair.glowSizePx ?? 1;
+    $('ch_color').value = CFG.crosshair.color ?? '#00ff66';
   }
   function applyFromInputs(){
     const $=id=>document.getElementById(id);
@@ -1875,7 +2156,16 @@ function keyPool() {
     CFG.stage4.timeLimit = Math.max(0, parseFloat($('s4_time').value||60));
     CFG.stage4.speeds = [0,1,2].map(i=>parseFloat(document.getElementById('s4_spd_'+i).value||[1.25,2.5,3.75][i]));
     CFG.stage4.distances = [0,1,2].map(i=>parseFloat(document.getElementById('s4_dist_'+i).value||[11.5,9.0,6.5][i]));
+
+    // Update crosshair config from inputs
+    CFG.crosshair.sizePx = parseInt($('ch_size').value, 10);
+    CFG.crosshair.thicknessPx = parseInt($('ch_thick').value, 10);
+    CFG.crosshair.glowSizePx = parseFloat($('ch_glow_size').value);
+    CFG.crosshair.color = $('ch_color').value;
+
     saveCFG();
+    // After saving, re-apply the crosshair configuration to the UI
+    updateCrosshairFromCFG();
   }
 
   function showEditor(){ const menuEl=document.getElementById('menu'); if (menuEl) menuEl.style.display='none'; document.getElementById('editor').style.display='flex'; populateEditorFromCFG(); bindMiniMapDrag(); drawMiniMap(); }
@@ -1885,7 +2175,7 @@ function keyPool() {
     const ob=document.getElementById('editorOpenBtn'); if(ob && !ob.__b){ob.__b=true; ob.addEventListener('click', showEditor);}
     const cb=document.getElementById('cfgCloseBtn'); if(cb && !cb.__b){cb.__b=true; cb.addEventListener('click', hideEditor);}
     const ab=document.getElementById('cfgApplyBtn'); if(ab && !ab.__b){ab.__b=true; ab.addEventListener('click', ()=>{ applyFromInputs(); hideEditor(); if (typeof isTransitioning!=='undefined'){ isTransitioning=true; setTimeout(()=>{ loadStage(currentStage); isTransitioning=false; }, 100); } });}
-    const rb=document.getElementById('cfgResetBtn'); if(rb && !rb.__b){rb.__b=true; rb.addEventListener('click', ()=>{ window.CFG = JSON.parse(JSON.stringify(DEFAULT_CFG)); saveCFG(); populateEditorFromCFG(); drawMiniMap(); });}
+    const rb=document.getElementById('cfgResetBtn'); if(rb && !rb.__b){rb.__b=true; rb.addEventListener('click', ()=>{ window.CFG = JSON.parse(JSON.stringify(DEFAULT_CFG)); saveCFG(); populateEditorFromCFG(); updateCrosshairFromCFG(); drawMiniMap(); });}
     const mrb=document.getElementById('editorResetBtn'); if(mrb && !mrb.__b){mrb.__b=true; mrb.addEventListener('click', ()=>{ window.CFG = JSON.parse(JSON.stringify(DEFAULT_CFG)); saveCFG(); });}
     const chips=document.getElementById('s1_keys'); if(chips && !chips.__b){chips.__b=true; chips.addEventListener('click',(e)=>{ const t=e.target.closest('.chip'); if(!t) return; t.classList.toggle('toggled'); });}
   }
@@ -1923,11 +2213,37 @@ function keyPool() {
     });
   }
 
-  document.addEventListener('DOMContentLoaded', ()=>{ bindEditorButtons(); });
+  document.addEventListener('DOMContentLoaded', ()=>{ bindEditorButtons(); if (typeof updateCrosshairFromCFG==='function') updateCrosshairFromCFG(); });
+
+  function updateLanternInputsFromCFG(){
+    const L = (window.CFG && CFG.lanterns) ? CFG.lanterns : (CFG.lanterns = {});
+    const g = (id)=>document.getElementById(id);
+    if (g('lan_brightness')) g('lan_brightness').value = (L.brightness ?? 0.85);
+    if (g('lan_count')) g('lan_count').value = (L.count ?? 24);
+    if (g('lan_height')) g('lan_height').value = (L.height ?? 3.8);
+    const cols = L.colors ?? ['#24d1ff','#ffa64d','#ff6ad5','#9af07f'];
+    if (g('lan_color1')) g('lan_color1').value = cols[0];
+    if (g('lan_color2')) g('lan_color2').value = cols[1];
+    if (g('lan_color3')) g('lan_color3').value = cols[2];
+    if (g('lan_color4')) g('lan_color4').value = cols[3];
+  }
+  function bindLanternEditor(){
+    const g = (id)=>document.getElementById(id);
+    const set = ()=>{
+      const L = (CFG.lanterns = CFG.lanterns || {});
+      L.brightness = parseFloat(g('lan_brightness').value);
+      L.count = Math.max(6, Math.min(64, parseInt(g('lan_count').value||24)));
+      L.height = parseFloat(g('lan_height').value);
+      L.colors = [g('lan_color1').value, g('lan_color2').value, g('lan_color3').value, g('lan_color4').value];
+      saveCFG();
+    };
+    ['lan_brightness','lan_count','lan_height','lan_color1','lan_color2','lan_color3','lan_color4']
+      .forEach(id=>{ const el=g(id); if(el && !el.__b){ el.__b=true; el.addEventListener('input', set); el.addEventListener('change', set);} });
+  }
+  document.addEventListener('DOMContentLoaded', ()=>{ try{ bindLanternEditor(); updateLanternInputsFromCFG(); }catch(e){} });
+
 })();
 </script>
 
-</body>
-</html>
 </body>
 </html>
